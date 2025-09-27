@@ -155,6 +155,126 @@ namespace AntiDebug {
 } // namespace AntiDebug
 } // anonymous namespace
 
+#if defined(_WIN32)
+namespace {
+namespace AntiDebug {
+    // Helper function to unhook a single module by restoring its .text section
+    static inline void unhookModule(const char* moduleName) {
+        HMODULE hModule = GetModuleHandleA(moduleName);
+        if (!hModule) return;
+
+        // Get the path to the original DLL on disk
+        char systemPath[MAX_PATH];
+        GetSystemDirectoryA(systemPath, MAX_PATH);
+        char dllPath[MAX_PATH];
+        // A buffer size of MAX_PATH for dllPath is safe because systemPath is also MAX_PATH.
+        // We are just adding a short string.
+        sprintf_s(dllPath, MAX_PATH, "%s\\%s", systemPath, moduleName);
+
+        // Open the original DLL file from disk
+        HANDLE hFile = CreateFileA(dllPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+        if (hFile == INVALID_HANDLE_VALUE) return;
+
+        // Map the on-disk DLL into memory as an image
+        HANDLE hMapping = CreateFileMapping(hFile, NULL, PAGE_READONLY | SEC_IMAGE, 0, 0, NULL);
+        if (!hMapping) {
+            CloseHandle(hFile);
+            return;
+        }
+        LPVOID pMappedBase = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0);
+        if (!pMappedBase) {
+            CloseHandle(hMapping);
+            CloseHandle(hFile);
+            return;
+        }
+
+        // Get the headers for the in-memory (potentially hooked) module
+        PIMAGE_DOS_HEADER pDosHeader = (PIMAGE_DOS_HEADER)hModule;
+        PIMAGE_NT_HEADERS pNtHeaders = (PIMAGE_NT_HEADERS)((BYTE*)hModule + pDosHeader->e_lfanew);
+
+        // Find the .text section of the module
+        PIMAGE_SECTION_HEADER pSectionHeader = IMAGE_FIRST_SECTION(pNtHeaders);
+        for (WORD i = 0; i < pNtHeaders->FileHeader.NumberOfSections; i++) {
+            // Case-sensitive comparison is fine here
+            if (strcmp((char*)pSectionHeader->Name, ".text") == 0) {
+                LPVOID pInMemoryText = (LPVOID)((BYTE*)hModule + pSectionHeader->VirtualAddress);
+                LPVOID pOnDiskText = (LPVOID)((BYTE*)pMappedBase + pSectionHeader->VirtualAddress);
+                DWORD dwTextSize = pSectionHeader->Misc.VirtualSize;
+
+                DWORD oldProtect;
+                if (VirtualProtect(pInMemoryText, dwTextSize, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+                    memcpy(pInMemoryText, pOnDiskText, dwTextSize);
+                    VirtualProtect(pInMemoryText, dwTextSize, oldProtect, &oldProtect);
+                }
+                break;
+            }
+            pSectionHeader++;
+        }
+
+        // Cleanup
+        UnmapViewOfFile(pMappedBase);
+        CloseHandle(hMapping);
+        CloseHandle(hFile);
+    }
+} // namespace AntiDebug
+} // anonymous namespace
+
+// --- Public API for Unhooking ---
+
+// Call this to restore critical DLLs (.text sections) to their original,
+// unhooked state from disk. This is effective against many forms of API hooking.
+static inline void UnhookCriticalAPIs() {
+    AntiDebug::unhookModule("ntdll.dll");
+    AntiDebug::unhookModule("kernel32.dll");
+}
+
+// For SetEntriesInAcl and related structures
+#include <Aclapi.h>
+
+// For MSVC, we can automatically link the required library.
+// For MinGW/g++, the user must link with -ladvapi32
+#if defined(_MSC_VER)
+#pragma comment(lib, "advapi32.lib")
+#endif
+
+// --- Public API for Anti-Injection ---
+
+// Call this once at startup to prevent other processes from using
+// CreateRemoteThread to inject DLLs into this process.
+// This is done by modifying the process's security descriptor to deny
+// PROCESS_CREATE_THREAD access to everyone.
+static inline void PreventRemoteThreadCreation() {
+    HANDLE hProcess = GetCurrentProcess();
+    PSECURITY_DESCRIPTOR pSecurityDescriptor = NULL;
+    PACL pOriginalDacl = NULL;
+
+    // Get the original security descriptor for the process
+    if (GetSecurityInfo(hProcess, SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, &pOriginalDacl, NULL, &pSecurityDescriptor) != ERROR_SUCCESS) {
+        return;
+    }
+
+    // Create a new ACE that denies PROCESS_CREATE_THREAD to "Everyone"
+    EXPLICIT_ACCESS_A denyAccess = {};
+    BuildTrusteeWithNameA(&denyAccess.Trustee, (LPSTR)"Everyone");
+    denyAccess.grfAccessPermissions = PROCESS_CREATE_THREAD;
+    denyAccess.grfAccessMode = DENY_ACCESS;
+    denyAccess.grfInheritance = NO_INHERITANCE;
+
+    PACL pNewDacl = NULL;
+    if (SetEntriesInAclA(1, &denyAccess, pOriginalDacl, &pNewDacl) != ERROR_SUCCESS) {
+        if (pSecurityDescriptor) LocalFree(pSecurityDescriptor);
+        return;
+    }
+
+    // Apply the new DACL to the process object
+    SetSecurityInfo(hProcess, SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, NULL, NULL, pNewDacl, NULL);
+
+    // Cleanup allocated memory
+    if (pSecurityDescriptor) LocalFree(pSecurityDescriptor);
+    if (pNewDacl) LocalFree(pNewDacl);
+}
+#endif
+
 // This is the single public-facing function.
 // It is also marked 'static inline' to allow it to be defined in the header.
 static inline bool CheckForDebugger() {

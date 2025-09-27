@@ -10,7 +10,23 @@ bool PerformCriticalTask() {
     return true;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+#if defined(_WIN32)
+    // --- Harden the application against tampering ---
+    // These should be called as early as possible in the application's lifecycle.
+
+    // Prevent other processes from injecting DLLs using CreateRemoteThread.
+    // This is a one-time setup.
+    PreventRemoteThreadCreation();
+    std::cout << "Anti-injection enabled." << std::endl;
+
+    // Restore critical system DLLs to their original state from disk,
+    // removing any API hooks that may have been placed. This can be called
+    // at multiple, unpredictable points in the code.
+    UnhookCriticalAPIs();
+    std::cout << "System DLLs unhooked." << std::endl;
+#endif
+
     // --- Subtle Anti-Debugging Consequence ---
     // Instead of exiting immediately, we'll make the program behave
     // in an unexpected but non-obvious way if a debugger is found.
