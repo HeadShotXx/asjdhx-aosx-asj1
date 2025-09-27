@@ -6,11 +6,13 @@
 #include <intrin.h>
 
 // Technique 1: IsDebuggerPresent()
+// Works on both MSVC and g++
 bool checkIsDebuggerPresent() {
     return IsDebuggerPresent();
 }
 
 // Technique 2: Check PEB BeingDebugged flag
+#if defined(_MSC_VER) // For MSVC
 bool checkPEB() {
     BOOL found = FALSE;
     __asm {
@@ -20,14 +22,32 @@ bool checkPEB() {
     }
     return found;
 }
+#elif defined(__GNUC__) // For g++ (MinGW)
+bool checkPEB() {
+    BOOL found = FALSE;
+    // This inline assembly is for 32-bit. For 64-bit, gs segment would be used.
+    asm volatile (
+        "movl %%fs:0x30, %%eax\n\t"
+        "movb 0x2(%%eax), %%al\n\t"
+        "movb %%al, %0"
+        : "=r" (found)
+        :
+        : "eax"
+    );
+    return found;
+}
+#else
+// Fallback for other compilers on Windows
+bool checkPEB() { return false; }
+#endif
 
 // Technique 3: RDTSC timing check
+// Works on both MSVC and g++
 bool checkTiming() {
     ULONGLONG t1 = __rdtsc();
     // A debugger will cause a significant delay between two __rdtsc calls
     // This is just a placeholder; a real implementation would need calibration
     for (int i = 0; i < 100; ++i) {
-        // Some trivial work
         volatile int x = i;
     }
     ULONGLONG t2 = __rdtsc();
@@ -35,6 +55,9 @@ bool checkTiming() {
 }
 
 // Technique 4: INT 3 exception check
+// This uses Structured Exception Handling, which is specific to MSVC.
+// It is disabled for g++ builds.
+#if defined(_MSC_VER)
 bool checkInt3() {
     __try {
         __asm int 3;
@@ -46,12 +69,18 @@ bool checkInt3() {
         return false;
     }
 }
+#endif
 
+// Main detection function
 bool isDebuggerPresent() {
     if (checkIsDebuggerPresent()) return true;
     if (checkPEB()) return true;
     if (checkTiming()) return true;
-    // if (checkInt3()) return true; // This one is more aggressive
+
+#if defined(_MSC_VER)
+    // if (checkInt3()) return true; // This one is more aggressive, MSVC only
+#endif
+
     return false;
 }
 

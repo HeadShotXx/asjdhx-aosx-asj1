@@ -1,14 +1,21 @@
 # Professional Anti-Debugging Techniques in C++
 
-This repository contains a demonstration of several anti-debugging techniques for C++ applications on both Windows and Linux.
+This repository contains a demonstration of several anti-debugging techniques for C++ applications on both Windows and Linux. The Windows code is compatible with both MSVC (`cl.exe`) and MinGW (`g++`).
 
 ## Compilation
 
-### Windows (with MSVC)
-Open a developer command prompt and run:
+### Windows with MSVC (Visual Studio)
+Open a "Developer Command Prompt for VS" and run:
 ```bash
 cl /EHsc main.cpp
 ```
+
+### Windows with MinGW (g++)
+Open a command prompt or terminal with `g++` in its path and run:
+```bash
+g++ main.cpp -o main.exe
+```
+**Note:** The `g++` compatible version does not include the `INT 3` exception-based check, as it relies on a Microsoft-specific compiler extension.
 
 ### Linux (with g++)
 ```bash
