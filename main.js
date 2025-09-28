@@ -208,7 +208,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = load_json(USERS_FILE)
     user = users.get(uid)
     if not user:
-        await query.edit_message_text("Record not found. Please send /start.")
+        text = "Record not found. Please send /start."
+        if query.message.photo:
+            await query.edit_message_caption(caption=text)
+        else:
+            await query.edit_message_text(text)
         return
 
     if data == "profile":
@@ -223,13 +227,19 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⭐ Subscription: {a_disp}\n\n"
             f"🔁 Daily Crypt: {daily_used}/{daily_limit}\n"
         )
-        await query.edit_message_text(text, reply_markup=reply)
+        if query.message.photo:
+            await query.edit_message_caption(caption=text, reply_markup=reply)
+        else:
+            await query.edit_message_text(text, reply_markup=reply)
 
     elif data == "plans":
         keyboard = [[InlineKeyboardButton("Back", callback_data="back")]]
         reply = InlineKeyboardMarkup(keyboard)
         text = "Contact the admin to purchase a subscription."
-        await query.edit_message_text(text, reply_markup=reply)
+        if query.message.photo:
+            await query.edit_message_caption(caption=text, reply_markup=reply)
+        else:
+            await query.edit_message_text(text, reply_markup=reply)
 
     elif data == "crypter":
         if has_active_subscription(query.from_user.id):
@@ -239,7 +249,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = [[InlineKeyboardButton("Back", callback_data="back")]]
         reply = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(text, reply_markup=reply)
+        if query.message.photo:
+            await query.edit_message_caption(caption=text, reply_markup=reply)
+        else:
+            await query.edit_message_text(text, reply_markup=reply)
 
     elif data == "back":
         keyboard = [
@@ -248,7 +261,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("Crypter", callback_data="crypter")]
         ]
         reply = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text("🌙 Night Crypter\n\nWelcome! Please select an option from the menu below.", reply_markup=reply)
+        text = "🌙 Night Crypter\n\nWelcome! Please select an option from the menu below."
+        if query.message.photo:
+            await query.edit_message_caption(caption=text, reply_markup=reply)
+        else:
+            await query.edit_message_text(text, reply_markup=reply)
 
 # ---------- Admin and User Commands ----------
 async def grant_a_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
