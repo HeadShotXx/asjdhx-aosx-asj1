@@ -243,11 +243,24 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "crypter":
         if has_active_subscription(query.from_user.id):
-            text = "✅ Subscription active (WD Bypass).\n\nPlease upload your .exe file to encrypt it."
+            text = "Please select a crypter method:"
+            keyboard = [
+                [InlineKeyboardButton("WD Killer", callback_data="wd_killer")],
+                [InlineKeyboardButton("Back", callback_data="back")]
+            ]
         else:
             text = "❌ You do not have an active subscription.\n\nPlease contact the admin to purchase one."
+            keyboard = [[InlineKeyboardButton("Back", callback_data="back")]]
 
-        keyboard = [[InlineKeyboardButton("Back", callback_data="back")]]
+        reply = InlineKeyboardMarkup(keyboard)
+        if query.message.photo:
+            await query.edit_message_caption(caption=text, reply_markup=reply)
+        else:
+            await query.edit_message_text(text, reply_markup=reply)
+
+    elif data == "wd_killer":
+        text = "✅ WD Killer selected.\n\nPlease upload your .exe file to encrypt it."
+        keyboard = [[InlineKeyboardButton("Back", callback_data="crypter")]]
         reply = InlineKeyboardMarkup(keyboard)
         if query.message.photo:
             await query.edit_message_caption(caption=text, reply_markup=reply)
