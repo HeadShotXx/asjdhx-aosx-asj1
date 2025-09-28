@@ -1,7 +1,7 @@
 # bot.py (Updated with Donut shellcode)
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from typing import Dict, Any, Optional
 import subprocess
 import donut
@@ -18,7 +18,6 @@ from telegram.ext import (
     filters,
     ConversationHandler,
 )
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # ========== SETTINGS ==========
 TOKEN = "8288860382:AAEBxNpEl81cnGKnOmauGEmMm7XkblkePYA"
@@ -161,7 +160,8 @@ def increment_crypt_count(user_id: int) -> None:
     users[key]["daily_used"] = used + 1
     save_json(USERS_FILE, users)
 
-def reset_all_daily_used() -> None:
+async def reset_all_daily_used(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Resets the daily crypt count for all users."""
     users = load_json(USERS_FILE)
     changed = False
     for uid, u in users.items():
@@ -170,6 +170,7 @@ def reset_all_daily_used() -> None:
             changed = True
     if changed:
         save_json(USERS_FILE, users)
+        print("Daily crypt counts have been reset for all users.")
 
 # ---------- Helper: User Stubs Directory ----------
 def user_stub_dir(user_id: int) -> str:
@@ -473,12 +474,12 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 def main():
     ensure_file(USERS_FILE, {})
 
-    # Scheduler for daily reset
-    scheduler = AsyncIOScheduler(timezone=tzinfo)
-    scheduler.add_job(reset_all_daily_used, 'cron', hour=0, minute=0)
-    scheduler.start()
-
     app = Application.builder().token(TOKEN).build()
+
+    # Schedule the daily reset job
+    job_queue = app.job_queue
+    reset_time = time(hour=0, minute=0, second=0, tzinfo=tzinfo)
+    job_queue.run_daily(reset_all_daily_used, time=reset_time, name="daily_reset_job")
 
     conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Document.ALL, file_upload_handler)],
