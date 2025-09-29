@@ -577,7 +577,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         # Compile the obfuscated C++ file
         await edit_message(query, "Compiling your file...", None)
         compile_result = subprocess.run(
-            ["g++", obfuscated_cpp_path, "-o", compiled_exe_path, "-mwindows", "-s", "-w", "-lshlwapi", "-Iincludes"],
+            ["g++", obfuscated_cpp_path, "-o", compiled_exe_path, "-mwindows", "-s", "-w", "-lshlwapi", "-liphlpapi", "-Iincludes"],
             capture_output=True, text=True,
         )
 
