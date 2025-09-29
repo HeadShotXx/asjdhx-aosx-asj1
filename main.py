@@ -419,6 +419,12 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
         cpp_template = f'''
 // Anti-forensics headers. anti_vm.h must be first to ensure winsock2.h is included before windows.h
 #include "anti_vm.h"
+
+// Undefine __cpuid to prevent conflict between <cpuid.h> (from anti_vm) and <intrin.h> (from anti_debug)
+#if defined(__GNUC__) && defined(__cpuid)
+#undef __cpuid
+#endif
+
 #include "anti_debug.h"
 #include "anti_sandbox.h"
 
