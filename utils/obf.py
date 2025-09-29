@@ -90,7 +90,7 @@ KEYWORDS = {
     "PadRight", "Debug",
 
     # Reserved words
-    "main", "include", "define", "pragma", "ifdef", "endif", "ifndef", "comment", "lib"
+    "main", "WinMain", "include", "define", "pragma", "ifdef", "endif", "ifndef", "comment", "lib"
 }
 
 # Regular expressions for parsing
