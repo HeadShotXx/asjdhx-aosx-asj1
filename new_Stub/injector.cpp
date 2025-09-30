@@ -52,10 +52,19 @@ DWORD FindTargetProcess(const wchar_t* processName) {
     PSYSTEM_PROCESS_INFORMATION current = spi;
     while (true) {
         if (current->ImageName.Buffer != NULL && current->ImageName.Length > 0) {
-            if (_wcsicmp(current->ImageName.Buffer, processName) == 0) {
-                DWORD pid = (DWORD)(uintptr_t)current->UniqueProcessId;
-                free(spi);
-                return pid;
+            // The ImageName.Buffer is not guaranteed to be null-terminated.
+            // We must copy it to a temporary buffer and null-terminate it manually.
+            wchar_t currentProcessName[MAX_PATH];
+            size_t nameLength = current->ImageName.Length / sizeof(wchar_t);
+            if (nameLength < MAX_PATH) {
+                wcsncpy_s(currentProcessName, MAX_PATH, current->ImageName.Buffer, nameLength);
+                currentProcessName[nameLength] = L'\0'; // Null-terminate
+
+                if (_wcsicmp(currentProcessName, processName) == 0) {
+                    DWORD pid = (DWORD)(uintptr_t)current->UniqueProcessId;
+                    free(spi);
+                    return pid;
+                }
             }
         }
         if (current->NextEntryOffset == 0) {
