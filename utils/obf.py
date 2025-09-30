@@ -29,6 +29,7 @@ KEYWORDS = {
     "promise", "chrono", "iostream", "sstream", "str", "wstringstream", "fstream", "algorithm",
     "to_wstring", "size", "find", "replace", "substr", "find_last_not_of", "c_str",
     "length", "data", "begin", "end", "get", "hex", "npos", "getenv", "_stricmp",
+    "reserve", "push_back",
 
     # Windows API Types & Constants
     "HANDLE", "PVOID", "LPWSTR", "DWORD", "BOOL", "NTSTATUS", "ULONG", "ULONG_PTR",
