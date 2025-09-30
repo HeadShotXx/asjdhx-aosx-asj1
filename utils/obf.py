@@ -80,6 +80,13 @@ KEYWORDS = {
     "PeekMessageA", "TranslateMessage", "DispatchMessageW", "DispatchMessageA",
     "GetModuleFileNameA", "SetFileAttributesA", "CreateToolhelp32Snapshot", "Process32First",
     "Process32Next", "CreateRemoteThread",
+
+    # Syscall stub keywords
+    "SyscallQuerySystemInformation", "SyscallOpenProcess", "SyscallAllocateVirtualMemory",
+    "SyscallWriteVirtualMemory", "SyscallCreateThreadEx", "SyscallClose",
+    "PSYSTEM_PROCESS_INFORMATION", "OBJECT_ATTRIBUTES", "CLIENT_ID", "ImageName", "Buffer", "Length",
+    "UniqueProcessId", "NextEntryOffset", "InitializeObjectAttributes", "NT_SUCCESS", "ACCESS_MASK",
+    "PHANDLE", "uintptr_t", "_wcsicmp", "SystemProcessInformation",
     "wcslen", "wcscpy", "wcscat", "wcscmp", "wcsncmp", "wcsstr", "wcstok",
     "malloc", "free", "calloc", "realloc", "memcpy", "memmove", "memset",
     "memcmp", "strlen", "strcpy", "strcat", "strcmp", "strncmp", "strstr",
