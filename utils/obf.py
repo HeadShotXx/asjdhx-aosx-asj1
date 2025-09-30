@@ -87,7 +87,11 @@ KEYWORDS = {
     "fflush", "feof", "ferror", "clearerr",
 
     # User-defined functions we want to preserve
-    "PadRight", "Debug",
+    "PadRight", "Debug", "CheckForDebugger", "AntiVM", "isVM", "AntiSandbox",
+    "check_cpuid", "check_timing", "check_ram", "check_mac_address",
+    "check_hardware_names", "check_linux_artifacts", "check_registry_keys",
+    "check_vm_files", "check_running_processes", "UnhookCriticalAPIs", "PreventRemoteThreadCreation",
+
 
     # Reserved words
     "main", "WinMain", "include", "define", "pragma", "ifdef", "endif", "ifndef", "comment", "lib"
