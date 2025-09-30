@@ -323,7 +323,8 @@ def obfuscate_strings(code, key_byte=0x55, wchar_key=0x5555, helper_names=None):
 
     lines = code.split('\n')
     processed_lines = []
-    RE_CHAR_ARRAY_INIT = re.compile(r'\bchar\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\[\s*\]\s*=\s*')
+    # This regex now correctly identifies both `char` and `unsigned char` array initializations.
+    RE_CHAR_ARRAY_INIT = re.compile(r'\b(unsigned\s+)?char\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\[\s*\]\s*=\s*')
     in_char_array_init = False
     for line in lines:
         if line.strip().startswith('#') or 'extern "C"' in line:
