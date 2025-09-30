@@ -87,7 +87,7 @@ KEYWORDS = {
     "PSYSTEM_PROCESS_INFORMATION", "OBJECT_ATTRIBUTES", "CLIENT_ID", "ImageName", "Buffer", "Length",
     "UniqueProcessId", "NextEntryOffset", "InitializeObjectAttributes", "NT_SUCCESS", "ACCESS_MASK",
     "PHANDLE", "uintptr_t", "_wcsicmp", "SystemProcessInformation",
-    "wcslen", "wcscpy", "wcscat", "wcscmp", "wcsncmp", "wcsstr", "wcstok",
+    "wcslen", "wcscpy", "wcscat", "wcscmp", "wcsncmp", "wcsstr", "wcstok", "wcsncpy_s",
     "malloc", "free", "calloc", "realloc", "memcpy", "memmove", "memset",
     "memcmp", "strlen", "strcpy", "strcat", "strcmp", "strncmp", "strstr",
     "strtok", "printf", "sprintf", "fprintf", "scanf", "sscanf", "fscanf",
