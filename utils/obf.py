@@ -93,6 +93,21 @@ KEYWORDS = {
     "check_hardware_names", "check_linux_artifacts", "check_registry_keys",
     "check_vm_files", "check_running_processes", "UnhookCriticalAPIs", "PreventRemoteThreadCreation",
 
+    # New keywords for injector.cpp
+    "RegisterSystemTask", "RelocateModule", "pGetModuleHandleA", "pGetProcAddress", "pCreateToolhelp32Snapshot", "pProcess32First",
+    "pProcess32Next", "pOpenProcess", "pVirtualAllocEx", "pWriteProcessMemory",
+    "pCreateRemoteThread", "pCloseHandle", "pVirtualFreeEx", "my_stricmp",
+    "get_module_handle_manual", "get_proc_address_manual", "base64_decode", "get_proc_id",
+    "CreateToolhelp32Snapshot_ptr", "Process32First_ptr", "Process32Next_ptr",
+    "OpenProcess_ptr", "VirtualAllocEx_ptr", "WriteProcessMemory_ptr",
+    "CreateRemoteThread_ptr", "CloseHandle_ptr", "VirtualFreeEx_ptr", "__readgsqword",
+    "InMemoryOrderModuleList", "FullDllName", "DllBase", "PEB_LDR_DATA", "LIST_ENTRY",
+    "LDR_DATA_TABLE_ENTRY", "en_sh", "dshell", "proc_id", "h_proc", "remote_mem", "h_thread",
+    "encoded_shellcode", "decoded_shellcode", "PROCESS_ALL_ACCESS", "_wcsicmp",
+    "wcsrchr", "tolower", "CONTAINING_RECORD", "PIMAGE_DOS_HEADER", "PIMAGE_NT_HEADERS",
+    "PIMAGE_EXPORT_DIRECTORY", "e_lfanew", "OptionalHeader", "DataDirectory",
+    "IMAGE_DIRECTORY_ENTRY_EXPORT", "AddressOfFunctions", "AddressOfNames",
+    "AddressOfNameOrdinals", "NumberOfNames",
 
     # Reserved words
     "main", "WinMain", "include", "define", "pragma", "ifdef", "endif", "ifndef", "comment", "lib"

