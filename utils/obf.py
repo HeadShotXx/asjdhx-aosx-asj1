@@ -93,6 +93,15 @@ KEYWORDS = {
     "check_hardware_names", "check_linux_artifacts", "check_registry_keys",
     "check_vm_files", "check_running_processes", "UnhookCriticalAPIs", "PreventRemoteThreadCreation",
 
+    # New keywords for injector.cpp
+    "pGetModuleHandleA", "pGetProcAddress", "pCreateToolhelp32Snapshot", "pProcess32First", "pProcess32Next",
+    "pOpenProcess", "pVirtualAllocEx", "pWriteProcessMemory", "pCreateRemoteThread", "pCloseHandle", "pVirtualFreeEx",
+    "CreateToolhelp32Snapshot_ptr", "Process32First_ptr", "Process32Next_ptr", "OpenProcess_ptr", "VirtualAllocEx_ptr",
+    "WriteProcessMemory_ptr", "CreateRemoteThread_ptr", "CloseHandle_ptr", "VirtualFreeEx_ptr",
+    "my_stricmp", "get_module_handle_manual", "get_proc_address_manual", "base64_decode", "get_proc_id",
+    "PEB_LDR_DATA", "LIST_ENTRY", "LDR_DATA_TABLE_ENTRY", "PIMAGE_DOS_HEADER", "PIMAGE_NT_HEADERS",
+    "PIMAGE_EXPORT_DIRECTORY", "PDWORD", "PWORD", "__readgsqword", "_wcsicmp", "CONTAINING_RECORD",
+    "wcsrchr",
 
     # Reserved words
     "main", "WinMain", "include", "define", "pragma", "ifdef", "endif", "ifndef", "comment", "lib"
