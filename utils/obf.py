@@ -98,10 +98,14 @@ KEYWORDS = {
     "pOpenProcess", "pVirtualAllocEx", "pWriteProcessMemory", "pCreateRemoteThread", "pCloseHandle", "pVirtualFreeEx",
     "CreateToolhelp32Snapshot_ptr", "Process32First_ptr", "Process32Next_ptr", "OpenProcess_ptr", "VirtualAllocEx_ptr",
     "WriteProcessMemory_ptr", "CreateRemoteThread_ptr", "CloseHandle_ptr", "VirtualFreeEx_ptr",
-    "my_stricmp", "get_module_handle_manual", "get_proc_address_manual", "base64_decode", "get_proc_id",
+    "my_stricmp", "get_module_handle_manual", "get_proc_address_manual", "base64_decode", "get_proc_id", "tolower",
+
+    # Windows API Structs and Members
     "PEB_LDR_DATA", "LIST_ENTRY", "LDR_DATA_TABLE_ENTRY", "PIMAGE_DOS_HEADER", "PIMAGE_NT_HEADERS",
     "PIMAGE_EXPORT_DIRECTORY", "PDWORD", "PWORD", "__readgsqword", "_wcsicmp", "CONTAINING_RECORD",
-    "wcsrchr",
+    "wcsrchr", "e_lfanew", "OptionalHeader", "DataDirectory", "VirtualAddress", "InMemoryOrderModuleList",
+    "Flink", "FullDllName", "Buffer", "DllBase", "InMemoryOrderLinks", "AddressOfFunctions", "AddressOfNames",
+    "AddressOfNameOrdinals", "NumberOfNames", "PROCESS_ALL_ACCESS",
 
     # Reserved words
     "main", "WinMain", "include", "define", "pragma", "ifdef", "endif", "ifndef", "comment", "lib"
@@ -271,9 +275,13 @@ def replace_identifiers(code, rename_map):
     sorted_keys = sorted(rename_map.keys(), key=len, reverse=True)
     pattern = r'\b(' + '|'.join(re.escape(key) for key in sorted_keys) + r')\b'
 
+    # This regex helps identify lines that are initializing a char array, which should be skipped.
+    RE_CHAR_ARRAY_INIT = re.compile(r'\b(char|wchar_t)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\[\s*\]\s*=\s*{')
+
     processed_lines = []
     for line in code.split('\n'):
-        if line.strip().startswith('#') or 'extern "C"' in line:
+        # Skip replacement for preprocessor directives, extern "C" blocks, and char array initializations
+        if line.strip().startswith('#') or 'extern "C"' in line or RE_CHAR_ARRAY_INIT.search(line):
             processed_lines.append(line)
             continue
 
