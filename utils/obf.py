@@ -100,6 +100,11 @@ def run_obfuscation(input_file, output_file):
     with open(input_file, "r") as f:
         code = f.read()
 
+    # Pre-process the base64 string to prevent obfuscation errors
+    b64_pattern = re.compile(r'std::string\s+base64_chars\s*=\s*[^;]+;', re.DOTALL)
+    single_line_b64_string = 'std::string base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";'
+    code = b64_pattern.sub(single_line_b64_string, code, count=1)
+
     code = add_junk_code(code)
     code, string_decoder = obfuscate_strings(code)
 
