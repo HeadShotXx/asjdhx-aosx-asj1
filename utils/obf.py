@@ -90,15 +90,8 @@ def run_obfuscation(input_file, output_file):
     code = add_junk_code(code)
     code, string_decoder = obfuscate_strings(code)
 
-    lines = code.split('\n')
-    injection_point = 0
-    for i, line in enumerate(lines):
-        stripped_line = line.strip()
-        if stripped_line.startswith('#') or stripped_line.startswith('//'):
-            injection_point = i + 1
-
-    lines.insert(injection_point, string_decoder)
-    code = '\n'.join(lines)
+    # Replace the placeholder with the decoder functions
+    code = code.replace("// {decoder_functions_placeholder}", string_decoder)
 
     with open(output_file, "w") as f:
         f.write(code)

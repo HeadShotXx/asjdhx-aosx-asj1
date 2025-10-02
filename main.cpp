@@ -28,6 +28,8 @@
 
 // {startup_macro_placeholder}
 
+// {decoder_functions_placeholder}
+
 typedef HMODULE(WINAPI* pGetModuleHandleA)(LPCSTR);
 typedef FARPROC(WINAPI* pGetProcAddress)(HMODULE, LPCSTR);
 typedef HANDLE(WINAPI* pCreateToolhelp32Snapshot)(DWORD, DWORD);
