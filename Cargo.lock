@@ -268,6 +268,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "dirs",
+ "qr-base45",
  "rand",
  "reqwest",
  "tokio",
@@ -911,6 +912,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ee95bc4ef87b8d5ba32e8b7714ccc834865276eab0aed5c9958d00ec45f49e8"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "qr-base45"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7161f19aea9c433448e4cb93fe79f418af806efaf29cec6f52d3a9747fd46d35"
+dependencies = [
+ "thiserror",
 ]
 
 [[package]]

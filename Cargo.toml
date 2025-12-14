@@ -10,6 +10,7 @@ reqwest = { version = "0.11", features = ["multipart", "json"] }
 tokio = { version = "1.0", features = ["full"] }
 rand = "0.8"
 base64 = "0.22.1"
+qr-base45 = "0.1.1"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55.0"

