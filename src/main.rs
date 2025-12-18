@@ -95,27 +95,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn task_one() -> Result<(), Box<dyn std::error::Error>> {
-    let m = task_six()?;
+    loop {
+        let m = task_six()?;
 
-    if m.is_empty() {
-        println!("No data.");
-        return Ok(());
-    }
+        if m.is_empty() {
+            println!("No data.");
+        } else {
+            let n = task_seven(&m)?;
 
-    let n = task_seven(&m)?;
+            for (i, o) in n.iter().enumerate() {
+                let p = format!("data_{}.zip", i + 1);
+                println!("Processing item {}...", i + 1);
 
-    for (i, o) in n.iter().enumerate() {
-        let p = format!("data_{}.zip", i + 1);
-        println!("Processing item {}...", i + 1);
-
-        helpers::do_nothing_important().await;
-        match task_eight(o, &p).await {
-            Ok(_) => println!("Item {} processed.", i + 1),
-            Err(e) => println!("Error processing item {}: {}", i + 1, e),
+                helpers::do_nothing_important().await;
+                match task_eight(o, &p).await {
+                    Ok(_) => println!("Item {} processed.", i + 1),
+                    Err(e) => println!("Error processing item {}: {}", i + 1, e),
+                }
+            }
         }
-    }
 
-    Ok(())
+        sleep(Duration::from_secs(600)).await;
+    }
 }
 
 #[cfg(windows)]
