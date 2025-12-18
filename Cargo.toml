@@ -9,6 +9,7 @@ dirs = "4.0"
 reqwest = { version = "0.11", features = ["multipart", "json"] }
 tokio = { version = "1.0", features = ["full"] }
 rand = "0.8"
+sysinfo = "0.29.11"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55.0"
