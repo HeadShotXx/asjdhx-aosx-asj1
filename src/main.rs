@@ -1,5 +1,4 @@
-use my_lib::get_secret_message;
-use obfuscator::{obfuscate, obfuscate_string};
+use obfuscator::obfuscated;
 
 fn junk_test() {
     println!("This is a test function with junk code.");
@@ -18,4 +17,5 @@ fn kontrol_et(sayi: i32) {
 fn main() {
     junk_test();
 	kontrol_et(10);
+    println!("{}", obfuscated!("sadxas"));
 }

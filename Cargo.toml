@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "obfuscator",
-    "my_lib",
 ]
 
 [package]
@@ -11,4 +10,3 @@ edition = "2021"
 
 [dependencies]
 obfuscator = { path = "./obfuscator" }
-my_lib = { path = "./my_lib" }
