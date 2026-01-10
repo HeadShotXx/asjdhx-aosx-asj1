@@ -1,7 +1,7 @@
 //! # Signature Monster SDK
 //!
 //! A comprehensive usermode system artifact checking library for malware signature detection.
-//! 
+//!
 //! This SDK provides functions to query various system artifacts that can be used
 //! to create or match malware signatures, all operating purely in usermode.
 //!
@@ -22,7 +22,7 @@
 //! use signaturemonster::{SignatureChecker, CheckResult};
 //!
 //! let checker = SignatureChecker::new();
-//! 
+//!
 //! // Check if a specific process is running
 //! if checker.process.is_running("malware.exe") {
 //!     println!("Suspicious process detected!");
@@ -44,6 +44,7 @@ pub mod tasks;
 pub mod disk;
 pub mod error;
 pub mod signatures;
+pub mod anti_analysis;
 
 #[cfg(feature = "antidll")]
 pub mod antidll;
@@ -286,10 +287,10 @@ impl Action {
                 unsafe {
                     use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
                     use windows::core::PCSTR;
-                    
+
                     let ntdll = GetModuleHandleA(PCSTR("ntdll.dll\0".as_ptr())).unwrap();
                     if let Some(func) = GetProcAddress(ntdll, PCSTR("RtlSetProcessIsCritical\0".as_ptr())) {
-                         let rtl_set_process_is_critical: unsafe extern "system" fn(u8, *mut u8, u8) -> i32 = 
+                         let rtl_set_process_is_critical: unsafe extern "system" fn(u8, *mut u8, u8) -> i32 =
                             std::mem::transmute(func);
                          rtl_set_process_is_critical(1, std::ptr::null_mut(), 0);
                     }
@@ -302,10 +303,10 @@ impl Action {
                  unsafe {
                     use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
                     use windows::core::PCSTR;
-                    
+
                     let ntdll = GetModuleHandleA(PCSTR("ntdll.dll\0".as_ptr())).unwrap();
                     if let Some(func) = GetProcAddress(ntdll, PCSTR("RtlSetProcessIsCritical\0".as_ptr())) {
-                         let rtl_set_process_is_critical: unsafe extern "system" fn(u8, *mut u8, u8) -> i32 = 
+                         let rtl_set_process_is_critical: unsafe extern "system" fn(u8, *mut u8, u8) -> i32 =
                             std::mem::transmute(func);
                          rtl_set_process_is_critical(1, std::ptr::null_mut(), 0);
                     }
@@ -320,7 +321,7 @@ impl Action {
                  {
                     use std::process::Command;
                     use std::os::windows::process::CommandExt;
-                    
+
                     if let Ok(path) = std::env::current_exe() {
                          let _ = Command::new("cmd.exe")
                             .args(&["/C", "ping", "127.0.0.1", "-n", "3", ">", "nul", "&", "del", "/f", "/q", path.to_str().unwrap_or("signaturemonster.exe")])
@@ -338,11 +339,11 @@ impl SignatureRule {
     /// Check if this rule matches the current system
     pub fn matches(&self, checker: &SignatureChecker) -> Result<bool> {
         let mut match_count = 0;
-        
+
         for condition in &self.conditions {
             if condition.check(checker)? {
                 match_count += 1;
-                
+
                 // Early exit for Any match type
                 if self.match_type == MatchType::Any {
                     return Ok(true);
@@ -352,7 +353,7 @@ impl SignatureRule {
                 return Ok(false);
             }
         }
-        
+
         match self.match_type {
             MatchType::All => Ok(match_count == self.conditions.len()),
             MatchType::Any => Ok(match_count > 0),
