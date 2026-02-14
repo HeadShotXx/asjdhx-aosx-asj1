@@ -6,7 +6,7 @@ use windows::{
 
 pub fn get_syscall_number(func_name: &str) -> Option<u32> {
     unsafe {
-        let ntdll_handle = GetModuleHandleA(s!("ntdll.dll")).expect("Failed to get a handle to ntdll.dll");
+        let ntdll_handle = GetModuleHandleA(s!("ntdll.dll")).expect("Handle not found");
         if ntdll_handle.is_invalid() {
             return None;
         }
