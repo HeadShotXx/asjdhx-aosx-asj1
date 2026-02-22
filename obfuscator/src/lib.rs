@@ -252,7 +252,17 @@ fn fast_parse_bytes(input: TokenStream) -> Option<Vec<u8>> {
             return tokens_to_bytes(g.stream());
         }
         TokenTree::Literal(ref l) => {
-            if let Ok(expr) = syn::parse_str::<Expr>(&l.to_string()) {
+            let s = l.to_string();
+            if s.starts_with('b') && s.starts_with("b\"") {
+                if let Ok(ls) = syn::parse_str::<syn::LitByteStr>(&s) {
+                    return Some(ls.value());
+                }
+            } else if s.starts_with('"') {
+                if let Ok(ls) = syn::parse_str::<syn::LitStr>(&s) {
+                    return Some(ls.value().into_bytes());
+                }
+            }
+            if let Ok(expr) = syn::parse_str::<Expr>(&s) {
                 return expr_to_bytes(&expr);
             }
         }
@@ -269,21 +279,27 @@ fn fast_parse_bytes(input: TokenStream) -> Option<Vec<u8>> {
 }
 
 fn tokens_to_bytes(tokens: TokenStream) -> Option<Vec<u8>> {
-    let mut bytes = Vec::new();
+    let mut bytes = Vec::with_capacity(1024);
     for tt in tokens {
         if let TokenTree::Literal(l) = tt {
-            let mut s = l.to_string();
-            // Handle suffixes like u8, i32, etc.
-            let mut search_start = 0;
-            if s.starts_with("0x") || s.starts_with("0X") {
-                search_start = 2;
+            let s = l.to_string();
+            if s.starts_with('b') || s.starts_with('"') || s.starts_with('\'') {
+                continue;
             }
-            if let Some(pos) = s[search_start..].find(|c: char| c.is_alphabetic()) {
-                s.truncate(search_start + pos);
+            let mut s = s.as_str();
+
+            let mut is_hex = false;
+            if s.starts_with("0x") || s.starts_with("0X") {
+                s = &s[2..];
+                is_hex = true;
             }
 
-            if s.starts_with("0x") || s.starts_with("0X") {
-                if let Ok(v) = u8::from_str_radix(&s[2..], 16) {
+            if let Some(pos) = s.find(|c: char| c.is_alphabetic()) {
+                s = &s[..pos];
+            }
+
+            if is_hex {
+                if let Ok(v) = u8::from_str_radix(s, 16) {
                     bytes.push(v);
                 }
             } else if let Ok(v) = s.parse::<u8>() {
@@ -533,21 +549,13 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
         let op = &decoding_ops[i];
         real_arms.push(quote! {
             #current_state => {
-                let mut #data_var = #real_data_ident;
                 #op
-                #real_data_ident = #data_var;
                 state = #next_state;
             }
         });
     }
     real_arms.push(quote! { 999 => break, });
     real_arms.shuffle(&mut rng);
-    paths.push((
-        real_data_ident,
-        real_initial_state,
-        real_arms,
-        true,
-    ));
 
     // Shared Fake Path Data
     let fake_len = if data.len() > 4096 { 1024 } else { data.len() };
@@ -555,6 +563,8 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
     let (fake_defs, fake_recon, fake_data_ident) =
         generate_data_fragments(&fake_data_bytes, &format!("F{}", call_id));
     all_static_defs.push(fake_defs);
+
+    paths.push((real_data_ident.clone(), real_initial_state, real_arms, true));
 
     // Fake Paths
     for _ in 0..10 {
@@ -578,9 +588,7 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
             let op = &fake_decoding_ops[i];
             fake_arms.push(quote! {
                 #cur => {
-                    let mut #data_var = #fake_data_ident;
                     #op
-                    #fake_data_ident = #data_var;
                     state = #nxt;
                 }
             });
@@ -599,19 +607,32 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
     let real_path_idx = paths.iter().position(|p| p.3).unwrap() as u64;
 
     let mut path_arms = Vec::new();
-    for (i, (d_ident, i_state, arms, _)) in paths.iter().enumerate() {
+    for (i, (_d_ident, i_state, arms, is_real)) in paths.iter().enumerate() {
         let idx = i as u64;
         let bytecode = generate_bytecode_for_val(*i_state as u64);
         let bytecode_lit = proc_macro2::Literal::byte_string(&bytecode);
 
-        let final_conv = if is_string {
-            quote! { final_result = Some(String::from_utf8_lossy(&#d_ident).to_string()); }
+        let data_init = if *is_real {
+            quote! {
+                #real_recon
+                let mut #data_var = #real_data_ident;
+            }
         } else {
-            quote! { final_result = Some(#d_ident.to_vec()); }
+            quote! {
+                #fake_recon
+                let mut #data_var = #fake_data_ident;
+            }
+        };
+
+        let final_conv = if is_string {
+            quote! { final_result = Some(String::from_utf8_lossy(&#data_var).to_string()); }
+        } else {
+            quote! { final_result = Some(#data_var.to_vec()); }
         };
 
         path_arms.push(quote! {
             #idx => {
+                #data_init
                 let mut vm = VM::new();
                 vm.execute(#bytecode_lit);
                 let mut state = vm.regs[0] as u32;
@@ -635,8 +656,6 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
             #key1_recon_logic
             #key2_recon_logic
             #vm_def
-            #real_recon
-            #fake_recon
 
             let mut final_result = None;
             let mut vm_idx = VM::new();
@@ -825,7 +844,7 @@ impl VisitMut for ArithmeticObfuscator {
                     quote! { (#val as #s) }
                 };
 
-                for _ in 0..3 {
+                for _ in 0..1 {
                     let r: u64 = rng.gen_range(1..1000);
                     let op = rng.gen_range(0..2);
                     current_expr = if suffix.is_empty() {
