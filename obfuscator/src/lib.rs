@@ -570,7 +570,7 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
     all_static_defs.push(real_defs);
 
     // Shared Fake Path Data
-    let fake_len = if data.len() > 4096 { 1024 } else { data.len() };
+    let fake_len = if data.len() > 1024 { 256 } else { data.len() };
     let fake_data_bytes: Vec<u8> = (0..fake_len).map(|_| rng.gen()).collect();
     let (fake_defs, fake_recon, fake_data_ident) = generate_data_fragments(&fake_data_bytes, &format!("F{}", call_id));
     all_static_defs.push(fake_defs);
@@ -599,35 +599,17 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
         let data_init = if *is_real {
             quote! {
                 #real_recon
-                let mut #data_var = #real_data_ident;
+                (#real_data_ident, #bytecode_lit as &[u8])
             }
         } else {
             quote! {
                 #fake_recon
-                let mut #data_var = #fake_data_ident;
+                (#fake_data_ident, #bytecode_lit as &[u8])
             }
         };
 
         path_arms.push(quote! {
-            #idx => {
-                #data_init
-                let mut vm = VM::new();
-                vm.execute(#bytecode_lit);
-                for op in vm.outputs {
-                    match op {
-                        0 => { #data_var = base36::decode(&String::from_utf8_lossy(&#data_var)).unwrap(); }
-                        1 => { #data_var = base45::decode(String::from_utf8_lossy(&#data_var).as_ref()).unwrap(); }
-                        2 => { #data_var = bs58::decode(String::from_utf8_lossy(&#data_var).as_ref()).into_vec().unwrap(); }
-                        3 => { #data_var = base85::decode(&String::from_utf8_lossy(&#data_var)).unwrap(); }
-                        4 => { #data_var = base91::slice_decode(&#data_var); }
-                        5 => { #data_var = base122_rs::decode(&String::from_utf8_lossy(&#data_var)).unwrap(); }
-                        10 => { #data_var = #data_var.iter().zip(#key1_var.iter().cycle()).map(|(&b, &k)| b ^ k).collect(); #key1_var.zeroize(); }
-                        11 => { #data_var = #data_var.iter().zip(#key2_var.iter().cycle()).map(|(&b, &k)| b ^ k).collect(); #key2_var.zeroize(); }
-                        _ => {}
-                    }
-                }
-                #data_var
-            }
+            #idx => { #data_init }
         });
     }
 
@@ -647,15 +629,35 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
             #key2_recon_logic
             #vm_def
 
+            let mut runner = |mut d: Vec<u8>, bc: &[u8], k1: &mut Vec<u8>, k2: &mut Vec<u8>| {
+                let mut vm = VM::new();
+                vm.execute(bc);
+                for op in vm.outputs {
+                    match op {
+                        0 => { d = base36::decode(&String::from_utf8_lossy(&d)).unwrap(); }
+                        1 => { d = base45::decode(String::from_utf8_lossy(&d).as_ref()).unwrap(); }
+                        2 => { d = bs58::decode(String::from_utf8_lossy(&d).as_ref()).into_vec().unwrap(); }
+                        3 => { d = base85::decode(&String::from_utf8_lossy(&d)).unwrap(); }
+                        4 => { d = base91::slice_decode(&d); }
+                        5 => { d = base122_rs::decode(&String::from_utf8_lossy(&d)).unwrap(); }
+                        10 => { d = d.iter().zip(k1.iter().cycle()).map(|(&b, &k)| b ^ k).collect(); k1.zeroize(); }
+                        11 => { d = d.iter().zip(k2.iter().cycle()).map(|(&b, &k)| b ^ k).collect(); k2.zeroize(); }
+                        _ => {}
+                    }
+                }
+                d
+            };
+
             let mut vm_idx = VM::new();
             vm_idx.execute(#real_idx_bytecode_lit);
             let target_idx = vm_idx.outputs[0];
 
-            let final_data = match target_idx {
+            let (initial_data, bytecode) = match target_idx {
                 #(#path_arms)*
                 _ => panic!("Invalid path"),
             };
 
+            let final_data = runner(initial_data, bytecode, &mut #key1_var, &mut #key2_var);
             #result_expr
         }
     };
@@ -823,8 +825,8 @@ impl VisitMut for ArithmeticObfuscator {
             let suffix = lit_int.suffix();
             if let Ok(val) = lit_int.base10_parse::<u64>() {
                 let mut rng = thread_rng();
-                // Only obfuscate 25% of literals to save compilation time
-                if !rng.gen_bool(0.25) || val < 5 {
+                // Only obfuscate 5% of literals to save compilation time
+                if !rng.gen_bool(0.05) || val < 100 {
                     return;
                 }
 
