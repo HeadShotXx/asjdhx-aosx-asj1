@@ -193,6 +193,29 @@ fn generate_vm_logic() -> proc_macro2::TokenStream {
                             self.regs[r1] ^= self.regs[r2];
                             pc += 2usize;
                         }
+                        5 => {
+                            let r1 = bytecode[pc] as usize;
+                            let r2 = bytecode[pc + 1usize] as usize;
+                            self.regs[r1] = self.regs[r1].wrapping_mul(self.regs[r2]);
+                            pc += 2usize;
+                        }
+                        6 => {
+                            let r1 = bytecode[pc] as usize;
+                            let r2 = bytecode[pc + 1usize] as usize;
+                            self.regs[r1] &= self.regs[r2];
+                            pc += 2usize;
+                        }
+                        7 => {
+                            let r1 = bytecode[pc] as usize;
+                            let r2 = bytecode[pc + 1usize] as usize;
+                            self.regs[r1] |= self.regs[r2];
+                            pc += 2usize;
+                        }
+                        8 => {
+                            let r1 = bytecode[pc] as usize;
+                            self.regs[r1] = !self.regs[r1];
+                            pc += 1usize;
+                        }
                         _ => break,
                     }
                 }
@@ -204,19 +227,58 @@ fn generate_vm_logic() -> proc_macro2::TokenStream {
 fn generate_bytecode_for_val(val: u64) -> Vec<u8> {
     let mut rng = thread_rng();
     let mut bytecode = Vec::new();
-    let r1: u64 = rng.gen_range(1..1000);
-    let op = rng.gen_range(0..2);
-    if op == 0 {
-        let v_plus_r = val.wrapping_add(r1);
-        bytecode.push(1); bytecode.push(0); bytecode.extend_from_slice(&v_plus_r.to_le_bytes());
-        bytecode.push(1); bytecode.push(1); bytecode.extend_from_slice(&r1.to_le_bytes());
-        bytecode.push(3); bytecode.push(0); bytecode.push(1);
-    } else {
-        let v_xor_r = val ^ r1;
-        bytecode.push(1); bytecode.push(0); bytecode.extend_from_slice(&v_xor_r.to_le_bytes());
-        bytecode.push(1); bytecode.push(1); bytecode.extend_from_slice(&r1.to_le_bytes());
-        bytecode.push(4); bytecode.push(0); bytecode.push(1);
+
+    // Start with a random value in R0
+    let initial_r0: u64 = rng.gen();
+    bytecode.push(1); bytecode.push(0); bytecode.extend_from_slice(&initial_r0.to_le_bytes());
+
+    // We want to reach 'val' in R0.
+    // Instead of working forward, let's work backward from 'val' to 'initial_r0'
+    let mut ops = Vec::new();
+    let mut temp = val;
+    for _ in 0..5 {
+        let op = rng.gen_range(0..3);
+        match op {
+            0 => { // ADD
+                let r: u64 = rng.gen_range(1..1000);
+                ops.push((0, r)); // 0 means we did +r, so backward is -r
+                temp = temp.wrapping_sub(r);
+            }
+            1 => { // SUB
+                let r: u64 = rng.gen_range(1..1000);
+                ops.push((1, r)); // 1 means we did -r, so backward is +r
+                temp = temp.wrapping_add(r);
+            }
+            2 => { // XOR
+                let r: u64 = rng.gen_range(1..1000);
+                ops.push((2, r)); // XOR backward is XOR
+                temp ^= r;
+            }
+            _ => unreachable!(),
+        }
     }
+
+    // Now R0 should be 'temp'.
+    bytecode.push(1); bytecode.push(0); bytecode.extend_from_slice(&temp.to_le_bytes());
+
+    // Apply ops in forward order to reach 'val'
+    for (op, r) in ops.into_iter().rev() {
+        bytecode.push(1); bytecode.push(1); bytecode.extend_from_slice(&r.to_le_bytes());
+        match op {
+            0 => { bytecode.push(2); bytecode.push(0); bytecode.push(1); } // ADD
+            1 => { bytecode.push(3); bytecode.push(0); bytecode.push(1); } // SUB
+            2 => { bytecode.push(4); bytecode.push(0); bytecode.push(1); } // XOR
+            _ => unreachable!(),
+        }
+    }
+
+    // Add some junk ops
+    for _ in 0..3 {
+        let r_junk: u64 = rng.gen();
+        bytecode.push(1); bytecode.push(2); bytecode.extend_from_slice(&r_junk.to_le_bytes());
+        bytecode.push(5); bytecode.push(2); bytecode.push(1); // MUL junk
+    }
+
     bytecode
 }
 
@@ -530,25 +592,35 @@ impl VisitMut for ArithmeticObfuscator {
                     return;
                 }
                 let mut rng = thread_rng();
-                let r: u64 = rng.gen_range(1..1000);
-                let op = rng.gen_range(0..2);
 
-                let new_expr = if suffix.is_empty() {
-                    match op {
-                        0 => quote! { (#val.wrapping_add(#r as _).wrapping_sub(#r as _)) },
-                        1 => quote! { (#val ^ (#r as _) ^ (#r as _)) },
-                        _ => unreachable!(),
-                    }
+                let mut current_expr = if suffix.is_empty() {
+                    quote! { #val }
                 } else {
                     let s = syn::Ident::new(suffix, proc_macro2::Span::call_site());
-                    match op {
-                        0 => {
-                            quote! { ((#val as #s).wrapping_add(#r as #s).wrapping_sub(#r as #s)) }
-                        }
-                        1 => quote! { ((#val as #s) ^ (#r as #s) ^ (#r as #s)) },
-                        _ => unreachable!(),
-                    }
+                    quote! { (#val as #s) }
                 };
+
+                for _ in 0..3 {
+                    let r: u64 = rng.gen_range(1..1000);
+                    let op = rng.gen_range(0..2);
+                    current_expr = if suffix.is_empty() {
+                        match op {
+                            0 => quote! { (#current_expr.wrapping_add(#r as _).wrapping_sub(#r as _)) },
+                            1 => quote! { (#current_expr ^ (#r as _) ^ (#r as _)) },
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        let s = syn::Ident::new(suffix, proc_macro2::Span::call_site());
+                        match op {
+                            0 => {
+                                quote! { (#current_expr.wrapping_add(#r as #s).wrapping_sub(#r as #s)) }
+                            }
+                            1 => quote! { (#current_expr ^ (#r as #s) ^ (#r as #s)) },
+                            _ => unreachable!(),
+                        }
+                    };
+                }
+                let new_expr = current_expr;
                 if let Ok(e) = syn::parse2(new_expr) {
                     *expr = e;
                     return;
