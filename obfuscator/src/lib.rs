@@ -280,98 +280,130 @@ fn fast_parse_bytes(input: TokenStream) -> Option<Vec<u8>> {
 
 fn tokens_to_bytes(tokens: TokenStream) -> Option<Vec<u8>> {
     let mut bytes = Vec::with_capacity(1024);
-    for tt in tokens {
+    let mut tokens_it = tokens.into_iter().peekable();
+
+    while let Some(tt) = tokens_it.next() {
         if let TokenTree::Literal(l) = tt {
             let s = l.to_string();
+            // Fast skip for strings/byte strings which shouldn't be in a u8 array
             if s.starts_with('b') || s.starts_with('"') || s.starts_with('\'') {
                 continue;
             }
-            let mut s = s.as_str();
 
+            let mut s_ref = s.as_str();
             let mut is_hex = false;
-            if s.starts_with("0x") || s.starts_with("0X") {
-                s = &s[2..];
+            if s_ref.starts_with("0x") || s_ref.starts_with("0X") {
+                s_ref = &s_ref[2..];
                 is_hex = true;
             }
 
-            if let Some(pos) = s.find(|c: char| c.is_alphabetic()) {
-                s = &s[..pos];
+            // Handle suffixes like 1u8
+            if let Some(pos) = s_ref.find(|c: char| !c.is_ascii_hexdigit()) {
+                if !is_hex {
+                    // Re-check for non-hex digits if not 0x
+                    if let Some(pos_dec) = s_ref.find(|c: char| !c.is_ascii_digit()) {
+                        s_ref = &s_ref[..pos_dec];
+                    }
+                } else {
+                    s_ref = &s_ref[..pos];
+                }
             }
 
             if is_hex {
-                if let Ok(v) = u8::from_str_radix(s, 16) {
+                if let Ok(v) = u8::from_str_radix(s_ref, 16) {
                     bytes.push(v);
                 }
-            } else if let Ok(v) = s.parse::<u8>() {
+            } else if let Ok(v) = s_ref.parse::<u8>() {
                 bytes.push(v);
             }
         }
     }
-    Some(bytes)
+
+    if bytes.is_empty() {
+        None
+    } else {
+        Some(bytes)
+    }
 }
 
 fn generate_vm_logic() -> proc_macro2::TokenStream {
     quote! {
         struct VM {
             regs: [u64; 4],
+            outputs: Vec<u64>,
         }
         impl VM {
             fn new() -> Self {
-                Self { regs: [0; 4] }
+                Self { regs: [0; 4], outputs: Vec::new() }
             }
             fn execute(&mut self, bytecode: &[u8]) {
                 let mut pc = 0;
                 while pc < bytecode.len() {
+                    if pc >= bytecode.len() { break; }
                     let op = bytecode[pc];
                     pc += 1;
                     match op {
-                        1 => {
+                        1 => { // MOV reg, val
+                            if pc + 9 > bytecode.len() { break; }
                             let reg = bytecode[pc] as usize;
                             let mut val_bytes = [0u8; 8];
-                            val_bytes.copy_from_slice(&bytecode[pc + 1usize..pc + 9usize]);
+                            val_bytes.copy_from_slice(&bytecode[pc + 1..pc + 9]);
                             self.regs[reg] = u64::from_le_bytes(val_bytes);
-                            pc += 9usize;
+                            pc += 9;
                         }
-                        2 => {
+                        2 => { // ADD r1, r2
+                            if pc + 2 > bytecode.len() { break; }
                             let r1 = bytecode[pc] as usize;
-                            let r2 = bytecode[pc + 1usize] as usize;
+                            let r2 = bytecode[pc + 1] as usize;
                             self.regs[r1] = self.regs[r1].wrapping_add(self.regs[r2]);
-                            pc += 2usize;
+                            pc += 2;
                         }
-                        3 => {
+                        3 => { // SUB r1, r2
+                            if pc + 2 > bytecode.len() { break; }
                             let r1 = bytecode[pc] as usize;
-                            let r2 = bytecode[pc + 1usize] as usize;
+                            let r2 = bytecode[pc + 1] as usize;
                             self.regs[r1] = self.regs[r1].wrapping_sub(self.regs[r2]);
-                            pc += 2usize;
+                            pc += 2;
                         }
-                        4 => {
+                        4 => { // XOR r1, r2
+                            if pc + 2 > bytecode.len() { break; }
                             let r1 = bytecode[pc] as usize;
-                            let r2 = bytecode[pc + 1usize] as usize;
+                            let r2 = bytecode[pc + 1] as usize;
                             self.regs[r1] ^= self.regs[r2];
-                            pc += 2usize;
+                            pc += 2;
                         }
-                        5 => {
+                        5 => { // MUL r1, r2
+                            if pc + 2 > bytecode.len() { break; }
                             let r1 = bytecode[pc] as usize;
-                            let r2 = bytecode[pc + 1usize] as usize;
+                            let r2 = bytecode[pc + 1] as usize;
                             self.regs[r1] = self.regs[r1].wrapping_mul(self.regs[r2]);
-                            pc += 2usize;
+                            pc += 2;
                         }
-                        6 => {
+                        6 => { // AND r1, r2
+                            if pc + 2 > bytecode.len() { break; }
                             let r1 = bytecode[pc] as usize;
-                            let r2 = bytecode[pc + 1usize] as usize;
+                            let r2 = bytecode[pc + 1] as usize;
                             self.regs[r1] &= self.regs[r2];
-                            pc += 2usize;
+                            pc += 2;
                         }
-                        7 => {
+                        7 => { // OR r1, r2
+                            if pc + 2 > bytecode.len() { break; }
                             let r1 = bytecode[pc] as usize;
-                            let r2 = bytecode[pc + 1usize] as usize;
+                            let r2 = bytecode[pc + 1] as usize;
                             self.regs[r1] |= self.regs[r2];
-                            pc += 2usize;
+                            pc += 2;
                         }
-                        8 => {
+                        8 => { // NOT r1
+                            if pc + 1 > bytecode.len() { break; }
                             let r1 = bytecode[pc] as usize;
                             self.regs[r1] = !self.regs[r1];
-                            pc += 1usize;
+                            pc += 1;
+                        }
+                        9 => { // OUTPUT reg
+                            if pc + 1 > bytecode.len() { break; }
+                            let reg = bytecode[pc] as usize;
+                            self.outputs.push(self.regs[reg]);
+                            pc += 1;
                         }
                         _ => break,
                     }
@@ -381,75 +413,64 @@ fn generate_vm_logic() -> proc_macro2::TokenStream {
     }
 }
 
-fn generate_bytecode_for_val(val: u64) -> Vec<u8> {
+fn generate_bytecode_for_ops(target_ops: &[u64]) -> Vec<u8> {
     let mut rng = thread_rng();
     let mut bytecode = Vec::new();
 
-    // Start with a random value in R0
-    let initial_r0: u64 = rng.gen();
-    bytecode.push(1); bytecode.push(0); bytecode.extend_from_slice(&initial_r0.to_le_bytes());
-
-    // We want to reach 'val' in R0.
-    // Instead of working forward, let's work backward from 'val' to 'initial_r0'
-    let mut ops = Vec::new();
-    let mut temp = val;
-    for _ in 0..5 {
-        let op = rng.gen_range(0..3);
-        match op {
-            0 => { // ADD
-                let r: u64 = rng.gen_range(1..1000);
-                ops.push((0, r)); // 0 means we did +r, so backward is -r
-                temp = temp.wrapping_sub(r);
+    for &val in target_ops {
+        // We want to reach 'val' in R0.
+        let mut steps = Vec::new();
+        let mut temp = val;
+        for _ in 0..3 {
+            let op = rng.gen_range(0..3);
+            match op {
+                0 => { // ADD
+                    let r: u64 = rng.gen_range(1..1000);
+                    steps.push((0, r));
+                    temp = temp.wrapping_sub(r);
+                }
+                1 => { // SUB
+                    let r: u64 = rng.gen_range(1..1000);
+                    steps.push((1, r));
+                    temp = temp.wrapping_add(r);
+                }
+                2 => { // XOR
+                    let r: u64 = rng.gen_range(1..1000);
+                    steps.push((2, r));
+                    temp ^= r;
+                }
+                _ => unreachable!(),
             }
-            1 => { // SUB
-                let r: u64 = rng.gen_range(1..1000);
-                ops.push((1, r)); // 1 means we did -r, so backward is +r
-                temp = temp.wrapping_add(r);
-            }
-            2 => { // XOR
-                let r: u64 = rng.gen_range(1..1000);
-                ops.push((2, r)); // XOR backward is XOR
-                temp ^= r;
-            }
-            _ => unreachable!(),
         }
-    }
 
-    // Now R0 should be 'temp'.
-    bytecode.push(1); bytecode.push(0); bytecode.extend_from_slice(&temp.to_le_bytes());
+        // Initialize R0 with temp
+        bytecode.push(1); bytecode.push(0); bytecode.extend_from_slice(&temp.to_le_bytes());
 
-    // Apply ops in forward order to reach 'val'
-    for (op, r) in ops.into_iter().rev() {
-        bytecode.push(1); bytecode.push(1); bytecode.extend_from_slice(&r.to_le_bytes());
-        match op {
-            0 => { bytecode.push(2); bytecode.push(0); bytecode.push(1); } // ADD
-            1 => { bytecode.push(3); bytecode.push(0); bytecode.push(1); } // SUB
-            2 => { bytecode.push(4); bytecode.push(0); bytecode.push(1); } // XOR
-            _ => unreachable!(),
+        // Apply steps to reach val
+        for (op, r) in steps.into_iter().rev() {
+            bytecode.push(1); bytecode.push(1); bytecode.extend_from_slice(&r.to_le_bytes());
+            match op {
+                0 => { bytecode.push(2); bytecode.push(0); bytecode.push(1); } // ADD
+                1 => { bytecode.push(3); bytecode.push(0); bytecode.push(1); } // SUB
+                2 => { bytecode.push(4); bytecode.push(0); bytecode.push(1); } // XOR
+                _ => unreachable!(),
+            }
         }
-    }
 
-    // Add some junk ops
-    for _ in 0..3 {
-        let r_junk: u64 = rng.gen();
-        bytecode.push(1); bytecode.push(2); bytecode.extend_from_slice(&r_junk.to_le_bytes());
-        bytecode.push(5); bytecode.push(2); bytecode.push(1); // MUL junk
+        // Output R0
+        bytecode.push(9); bytecode.push(0);
+
+        // Add some junk
+        if rng.gen_bool(0.3) {
+            let r_junk: u64 = rng.gen();
+            bytecode.push(1); bytecode.push(2); bytecode.extend_from_slice(&r_junk.to_le_bytes());
+            bytecode.push(5); bytecode.push(2); bytecode.push(0);
+        }
     }
 
     bytecode
 }
 
-fn apply_arithmetic_obf(tokens: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
-    let mut visitor = ArithmeticObfuscator { enabled: true };
-    if let Ok(mut file) = syn::parse2::<syn::File>(quote! { fn dummy() { #tokens } }) {
-        visitor.visit_file_mut(&mut file);
-        if let Some(syn::Item::Fn(f)) = file.items.first() {
-            let stmts = &f.block.stmts;
-            return quote! { #(#stmts)* };
-        }
-    }
-    tokens
-}
 
 fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2::TokenStream {
     let mut rng = thread_rng();
@@ -524,92 +545,55 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
         decoding_ops.push(codec.get_decode_logic(&data_var));
     }
 
+    // Generate Opcodes for decoding
+    // 0: Base36, 1: Base45, 2: Base58, 3: Base85, 4: Base91, 5: Base122, 10: XOR Key1, 11: XOR Key2
+    let mut real_opcodes = Vec::new();
+    for codec in third_codecs.iter().rev() {
+        real_opcodes.push(*codec as u64);
+    }
+    real_opcodes.push(11);
+    for codec in second_codecs.iter().rev() {
+        real_opcodes.push(*codec as u64);
+    }
+    real_opcodes.push(10);
+    for codec in first_codecs.iter().rev() {
+        real_opcodes.push(*codec as u64);
+    }
+
     // Generate 11 paths (1 real, 10 fake)
-    let mut paths = Vec::new();
     let mut all_static_defs = Vec::new();
     all_static_defs.push(key1_defs);
     all_static_defs.push(key2_defs);
 
-    // Real Path
-    let (real_defs, real_recon, real_data_ident) =
-        generate_data_fragments(&data, &format!("R{}", call_id));
+    // Real Data fragments
+    let (real_defs, real_recon, real_data_ident) = generate_data_fragments(&data, &format!("R{}", call_id));
     all_static_defs.push(real_defs);
-
-    let mut real_states: Vec<u32> = (0..decoding_ops.len() as u32).collect();
-    real_states.shuffle(&mut rng);
-    let real_initial_state = real_states[0];
-    let mut real_arms = Vec::new();
-    for i in 0..decoding_ops.len() {
-        let current_state = real_states[i];
-        let next_state = if i + 1 < decoding_ops.len() {
-            real_states[i + 1]
-        } else {
-            999
-        };
-        let op = &decoding_ops[i];
-        real_arms.push(quote! {
-            #current_state => {
-                #op
-                state = #next_state;
-            }
-        });
-    }
-    real_arms.push(quote! { 999 => break, });
-    real_arms.shuffle(&mut rng);
 
     // Shared Fake Path Data
     let fake_len = if data.len() > 4096 { 1024 } else { data.len() };
     let fake_data_bytes: Vec<u8> = (0..fake_len).map(|_| rng.gen()).collect();
-    let (fake_defs, fake_recon, fake_data_ident) =
-        generate_data_fragments(&fake_data_bytes, &format!("F{}", call_id));
+    let (fake_defs, fake_recon, fake_data_ident) = generate_data_fragments(&fake_data_bytes, &format!("F{}", call_id));
     all_static_defs.push(fake_defs);
 
-    paths.push((real_data_ident.clone(), real_initial_state, real_arms, true));
-
-    // Fake Paths
+    let mut path_configs = Vec::new();
+    // Real path config
+    path_configs.push((true, real_opcodes));
+    // Fake path configs
     for _ in 0..10 {
-        let mut fake_decoding_ops = Vec::new();
+        let mut fake_ops = Vec::new();
         for _ in 0..rng.gen_range(3..7) {
-            let all_codecs = Codec::all();
-            let codec = all_codecs.choose(&mut rng).unwrap();
-            fake_decoding_ops.push(codec.get_decode_logic(&data_var));
+            fake_ops.push(rng.gen_range(0..6));
         }
-        let mut fake_states: Vec<u32> = (0..fake_decoding_ops.len() as u32).collect();
-        fake_states.shuffle(&mut rng);
-        let fake_initial_state = fake_states[0];
-        let mut fake_arms = Vec::new();
-        for i in 0..fake_decoding_ops.len() {
-            let cur = fake_states[i];
-            let nxt = if i + 1 < fake_decoding_ops.len() {
-                fake_states[i + 1]
-            } else {
-                999
-            };
-            let op = &fake_decoding_ops[i];
-            fake_arms.push(quote! {
-                #cur => {
-                    #op
-                    state = #nxt;
-                }
-            });
-        }
-        fake_arms.push(quote! { 999 => break, });
-        fake_arms.shuffle(&mut rng);
-        paths.push((
-            fake_data_ident.clone(),
-            fake_initial_state,
-            fake_arms,
-            false,
-        ));
+        path_configs.push((false, fake_ops));
     }
+    path_configs.shuffle(&mut rng);
 
-    paths.shuffle(&mut rng);
-    let real_path_idx = paths.iter().position(|p| p.3).unwrap() as u64;
+    let real_path_idx = path_configs.iter().position(|p| p.0).unwrap() as u64;
 
     let mut path_arms = Vec::new();
-    for (i, (_d_ident, i_state, arms, is_real)) in paths.iter().enumerate() {
+    for (i, (is_real, opcodes)) in path_configs.iter().enumerate() {
         let idx = i as u64;
-        let bytecode = generate_bytecode_for_val(*i_state as u64);
+        let bytecode = generate_bytecode_for_ops(opcodes);
         let bytecode_lit = proc_macro2::Literal::byte_string(&bytecode);
 
         let data_init = if *is_real {
@@ -624,32 +608,38 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
             }
         };
 
-        let final_conv = if is_string {
-            quote! { final_result = Some(String::from_utf8_lossy(&#data_var).to_string()); }
-        } else {
-            quote! { final_result = Some(#data_var.to_vec()); }
-        };
-
         path_arms.push(quote! {
             #idx => {
                 #data_init
                 let mut vm = VM::new();
                 vm.execute(#bytecode_lit);
-                let mut state = vm.regs[0] as u32;
-                loop {
-                    match state {
-                        #(#arms)*
-                        _ => break,
+                for op in vm.outputs {
+                    match op {
+                        0 => { #data_var = base36::decode(&String::from_utf8_lossy(&#data_var)).unwrap(); }
+                        1 => { #data_var = base45::decode(String::from_utf8_lossy(&#data_var).as_ref()).unwrap(); }
+                        2 => { #data_var = bs58::decode(String::from_utf8_lossy(&#data_var).as_ref()).into_vec().unwrap(); }
+                        3 => { #data_var = base85::decode(&String::from_utf8_lossy(&#data_var)).unwrap(); }
+                        4 => { #data_var = base91::slice_decode(&#data_var); }
+                        5 => { #data_var = base122_rs::decode(&String::from_utf8_lossy(&#data_var)).unwrap(); }
+                        10 => { #data_var = #data_var.iter().zip(#key1_var.iter().cycle()).map(|(&b, &k)| b ^ k).collect(); #key1_var.zeroize(); }
+                        11 => { #data_var = #data_var.iter().zip(#key2_var.iter().cycle()).map(|(&b, &k)| b ^ k).collect(); #key2_var.zeroize(); }
+                        _ => {}
                     }
                 }
-                #final_conv
+                #data_var
             }
         });
     }
 
     let vm_def = generate_vm_logic();
-    let real_idx_bytecode = generate_bytecode_for_val(real_path_idx);
+    let real_idx_bytecode = generate_bytecode_for_ops(&[real_path_idx]);
     let real_idx_bytecode_lit = proc_macro2::Literal::byte_string(&real_idx_bytecode);
+
+    let result_expr = if is_string {
+        quote! { String::from_utf8_lossy(&final_data).to_string() }
+    } else {
+        quote! { final_data.to_vec() }
+    };
 
     let logic_block = quote! {
         {
@@ -657,20 +647,20 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
             #key2_recon_logic
             #vm_def
 
-            let mut final_result = None;
             let mut vm_idx = VM::new();
             vm_idx.execute(#real_idx_bytecode_lit);
-            let target_idx = vm_idx.regs[0];
+            let target_idx = vm_idx.outputs[0];
 
-            match target_idx {
+            let final_data = match target_idx {
                 #(#path_arms)*
-                _ => {}
-            }
-            final_result.unwrap()
+                _ => panic!("Invalid path"),
+            };
+
+            #result_expr
         }
     };
 
-    let obfuscated_logic = apply_arithmetic_obf(logic_block);
+    let obfuscated_logic = logic_block; // Skip arithmetic obfuscation for now to reduce bloat
 
     quote! {
         {
@@ -832,10 +822,11 @@ impl VisitMut for ArithmeticObfuscator {
         {
             let suffix = lit_int.suffix();
             if let Ok(val) = lit_int.base10_parse::<u64>() {
-                if val < 10 {
+                let mut rng = thread_rng();
+                // Only obfuscate 25% of literals to save compilation time
+                if !rng.gen_bool(0.25) || val < 5 {
                     return;
                 }
-                let mut rng = thread_rng();
 
                 let mut current_expr = if suffix.is_empty() {
                     quote! { #val }
