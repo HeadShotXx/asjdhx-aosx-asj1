@@ -153,6 +153,61 @@ fn generate_key_reconstruction_logic(
     (key_var, logic)
 }
 
+fn generate_data_fragments(data: &[u8], prefix: &str) -> (proc_macro2::TokenStream, proc_macro2::TokenStream, syn::Ident) {
+    let mut rng = thread_rng();
+    let num_frags = rng.gen_range(3..=6);
+    let frag_size = (data.len() + num_frags - 1) / num_frags;
+    let salt_offset = rng.gen::<u8>();
+
+    let mut static_defs = Vec::new();
+    let mut recon_steps = Vec::new();
+    let data_ident = syn::Ident::new(&format!("data_{}", prefix), proc_macro2::Span::call_site());
+
+    for i in 0..num_frags {
+        let start = i * frag_size;
+        let end = ((i + 1) * frag_size).min(data.len());
+        if start >= end { continue; }
+
+        let fragment = &data[start..end];
+        let salt = salt_offset.wrapping_add(i as u8);
+        let encoded: Vec<u8> = fragment.iter().map(|b| b.wrapping_add(salt)).collect();
+
+        let mut hasher = Hasher::new();
+        hasher.update(&encoded);
+        let checksum = hasher.finalize();
+
+        let var_base: String = thread_rng().sample_iter(&Alphanumeric).take(10).map(char::from).collect();
+        let f_ident = syn::Ident::new(&format!("D_{}_{}", prefix, var_base), proc_macro2::Span::call_site());
+        let c_ident = syn::Ident::new(&format!("C_{}_{}", prefix, var_base), proc_macro2::Span::call_site());
+
+        let f_lit = proc_macro2::Literal::byte_string(&encoded);
+
+        static_defs.push(quote! {
+            static #f_ident: &'static [u8] = #f_lit;
+            static #c_ident: u32 = #checksum;
+        });
+
+        recon_steps.push(quote! {
+            {
+                let frag = #f_ident;
+                let mut h = Hasher::new();
+                h.update(frag);
+                if h.finalize() != #c_ident { panic!("Integrity check failed"); }
+                let s = #salt_offset.wrapping_add(#i as u8);
+                #data_ident.extend(frag.iter().map(|b| b.wrapping_sub(s)));
+            }
+        });
+    }
+
+    let data_len = data.len();
+    let recon_logic = quote! {
+        let mut #data_ident = Vec::with_capacity(#data_len);
+        #(#recon_steps)*
+    };
+
+    (quote! { #(#static_defs)* }, recon_logic, data_ident)
+}
+
 fn generate_vm_logic() -> proc_macro2::TokenStream {
     quote! {
         struct VM {
@@ -311,8 +366,6 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
         data = codec.encode(&data);
     }
 
-    let final_encoded = proc_macro2::Literal::byte_string(&data);
-
     let data_var = syn::Ident::new("data", proc_macro2::Span::call_site());
 
     let (key1_var, key1_recon_logic) = generate_key_reconstruction_logic("reconstructed_key_1", 16, &key1_frag_vars, &key1_checksum_vars);
@@ -341,8 +394,14 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
 
     // Generate 11 paths (1 real, 10 fake)
     let mut paths = Vec::new();
+    let mut all_static_defs = Vec::new();
+    all_static_defs.push(key1_defs);
+    all_static_defs.push(key2_defs);
 
     // Real Path
+    let (real_defs, real_recon, real_data_ident) = generate_data_fragments(&data, "R");
+    all_static_defs.push(real_defs);
+
     let mut real_states: Vec<u32> = (0..decoding_ops.len() as u32).collect();
     real_states.shuffle(&mut rng);
     let real_initial_state = real_states[0];
@@ -353,19 +412,23 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
         let op = &decoding_ops[i];
         real_arms.push(quote! {
             #current_state => {
+                let mut #data_var = #real_data_ident;
                 #op
+                #real_data_ident = #data_var;
                 state = #next_state;
             }
         });
     }
     real_arms.push(quote! { 999 => break, });
     real_arms.shuffle(&mut rng);
-    paths.push((final_encoded, real_initial_state, real_arms, true));
+    paths.push((real_recon, real_data_ident, real_initial_state, real_arms, true));
 
     // Fake Paths
-    for _ in 0..10 {
+    for j in 0..10 {
         let fake_data_bytes: Vec<u8> = (0..data.len()).map(|_| rng.gen()).collect();
-        let fake_data_literal = proc_macro2::Literal::byte_string(&fake_data_bytes);
+        let (fake_defs, fake_recon, fake_data_ident) = generate_data_fragments(&fake_data_bytes, &format!("F{}", j));
+        all_static_defs.push(fake_defs);
+
         let mut fake_decoding_ops = Vec::new();
         for _ in 0..rng.gen_range(3..7) {
             let all_codecs = Codec::all();
@@ -381,25 +444,30 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
             let nxt = if i + 1 < fake_decoding_ops.len() { fake_states[i+1] } else { 999 };
             let op = &fake_decoding_ops[i];
             fake_arms.push(quote! {
-                #cur => { #op state = #nxt; }
+                #cur => {
+                    let mut #data_var = #fake_data_ident;
+                    #op
+                    #fake_data_ident = #data_var;
+                    state = #nxt;
+                }
             });
         }
         fake_arms.push(quote! { 999 => break, });
         fake_arms.shuffle(&mut rng);
-        paths.push((fake_data_literal, fake_initial_state, fake_arms, false));
+        paths.push((fake_recon, fake_data_ident, fake_initial_state, fake_arms, false));
     }
 
     paths.shuffle(&mut rng);
-    let real_path_idx = paths.iter().position(|p| p.3).unwrap() as u64;
+    let real_path_idx = paths.iter().position(|p| p.4).unwrap() as u64;
 
     let mut path_arms = Vec::new();
-    for (i, (d_lit, i_state, arms, _)) in paths.iter().enumerate() {
+    for (i, (recon, d_ident, i_state, arms, _)) in paths.iter().enumerate() {
         let idx = i as u64;
         let bytecode = generate_bytecode_for_val(*i_state as u64);
         let bytecode_lit = proc_macro2::Literal::byte_string(&bytecode);
         path_arms.push(quote! {
             #idx => {
-                let mut #data_var = #d_lit.to_vec();
+                #recon
                 let mut vm = VM::new();
                 vm.execute(#bytecode_lit);
                 let mut state = vm.regs[0] as u32;
@@ -409,7 +477,7 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
                         _ => break,
                     }
                 }
-                final_result = Some(String::from_utf8_lossy(&#data_var).to_string());
+                final_result = Some(String::from_utf8_lossy(&#d_ident).to_string());
             }
         });
     }
@@ -422,8 +490,7 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
         {
             use zeroize::Zeroize;
             use crc32fast::Hasher;
-            #key1_defs
-            #key2_defs
+            #(#all_static_defs)*
             #key1_recon_logic
             #key2_recon_logic
 
