@@ -1,8 +1,8 @@
 extern crate proc_macro;
 
-use proc_macro::TokenStream;
+use proc_macro::{Delimiter, TokenStream, TokenTree};
 use quote::quote;
-use syn::{parse_macro_input, LitStr, ItemFn, Meta, Lit, Expr, ExprLit};
+use syn::{parse_macro_input, Expr, ExprLit, ItemFn, Lit, LitStr, Meta};
 use syn::visit_mut::{self, VisitMut};
 use syn::punctuated::Punctuated;
 use syn::parse::Parser;
@@ -212,7 +212,7 @@ fn expr_to_bytes(expr: &Expr) -> Option<Vec<u8>> {
     match expr {
         Expr::Reference(r) => expr_to_bytes(&r.expr),
         Expr::Array(a) => {
-            let mut bytes = Vec::new();
+            let mut bytes = Vec::with_capacity(a.elems.len());
             for elem in &a.elems {
                 if let Expr::Lit(ExprLit {
                     lit: Lit::Int(li), ..
@@ -234,6 +234,64 @@ fn expr_to_bytes(expr: &Expr) -> Option<Vec<u8>> {
         }) => Some(ls.value().into_bytes()),
         _ => None,
     }
+}
+
+fn fast_parse_bytes(input: TokenStream) -> Option<Vec<u8>> {
+    let mut iter = input.into_iter();
+    let first = iter.next()?;
+
+    match first {
+        TokenTree::Punct(ref p) if p.as_char() == '&' => {
+            if let Some(TokenTree::Group(g)) = iter.next() {
+                if g.delimiter() == Delimiter::Bracket {
+                    return tokens_to_bytes(g.stream());
+                }
+            }
+        }
+        TokenTree::Group(ref g) if g.delimiter() == Delimiter::Bracket => {
+            return tokens_to_bytes(g.stream());
+        }
+        TokenTree::Literal(ref l) => {
+            if let Ok(expr) = syn::parse_str::<Expr>(&l.to_string()) {
+                return expr_to_bytes(&expr);
+            }
+        }
+        _ => {}
+    }
+
+    // Fallback to syn for anything else
+    let ts: TokenStream = first.into();
+    if let Ok(expr) = syn::parse2::<Expr>(ts.into()) {
+        return expr_to_bytes(&expr);
+    }
+
+    None
+}
+
+fn tokens_to_bytes(tokens: TokenStream) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    for tt in tokens {
+        if let TokenTree::Literal(l) = tt {
+            let mut s = l.to_string();
+            // Handle suffixes like u8, i32, etc.
+            let mut search_start = 0;
+            if s.starts_with("0x") || s.starts_with("0X") {
+                search_start = 2;
+            }
+            if let Some(pos) = s[search_start..].find(|c: char| c.is_alphabetic()) {
+                s.truncate(search_start + pos);
+            }
+
+            if s.starts_with("0x") || s.starts_with("0X") {
+                if let Ok(v) = u8::from_str_radix(&s[2..], 16) {
+                    bytes.push(v);
+                }
+            } else if let Ok(v) = s.parse::<u8>() {
+                bytes.push(v);
+            }
+        }
+    }
+    Some(bytes)
 }
 
 fn generate_vm_logic() -> proc_macro2::TokenStream {
@@ -431,26 +489,23 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
         &key2_checksum_vars,
     );
 
-    let key1_recon_logic = apply_arithmetic_obf(key1_recon_logic);
-    let key2_recon_logic = apply_arithmetic_obf(key2_recon_logic);
-
     let mut decoding_ops = Vec::new();
     for codec in third_codecs.iter().rev() {
-        decoding_ops.push(apply_arithmetic_obf(codec.get_decode_logic(&data_var)));
+        decoding_ops.push(codec.get_decode_logic(&data_var));
     }
-    decoding_ops.push(apply_arithmetic_obf(quote! {
+    decoding_ops.push(quote! {
         #data_var = #data_var.iter().zip(#key2_var.iter().cycle()).map(|(&b, &k)| b ^ k).collect();
         #key2_var.zeroize();
-    }));
+    });
     for codec in second_codecs.iter().rev() {
-        decoding_ops.push(apply_arithmetic_obf(codec.get_decode_logic(&data_var)));
+        decoding_ops.push(codec.get_decode_logic(&data_var));
     }
-    decoding_ops.push(apply_arithmetic_obf(quote! {
+    decoding_ops.push(quote! {
         #data_var = #data_var.iter().zip(#key1_var.iter().cycle()).map(|(&b, &k)| b ^ k).collect();
         #key1_var.zeroize();
-    }));
+    });
     for codec in first_codecs.iter().rev() {
-        decoding_ops.push(apply_arithmetic_obf(codec.get_decode_logic(&data_var)));
+        decoding_ops.push(codec.get_decode_logic(&data_var));
     }
 
     // Generate 11 paths (1 real, 10 fake)
@@ -463,7 +518,6 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
     let (real_defs, real_recon, real_data_ident) =
         generate_data_fragments(&data, &format!("R{}", call_id));
     all_static_defs.push(real_defs);
-    let real_recon = apply_arithmetic_obf(real_recon);
 
     let mut real_states: Vec<u32> = (0..decoding_ops.len() as u32).collect();
     real_states.shuffle(&mut rng);
@@ -477,19 +531,18 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
             999
         };
         let op = &decoding_ops[i];
-        real_arms.push(apply_arithmetic_obf(quote! {
+        real_arms.push(quote! {
             #current_state => {
                 let mut #data_var = #real_data_ident;
                 #op
                 #real_data_ident = #data_var;
                 state = #next_state;
             }
-        }));
+        });
     }
-    real_arms.push(apply_arithmetic_obf(quote! { 999 => break, }));
+    real_arms.push(quote! { 999 => break, });
     real_arms.shuffle(&mut rng);
     paths.push((
-        real_recon,
         real_data_ident,
         real_initial_state,
         real_arms,
@@ -502,7 +555,6 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
     let (fake_defs, fake_recon, fake_data_ident) =
         generate_data_fragments(&fake_data_bytes, &format!("F{}", call_id));
     all_static_defs.push(fake_defs);
-    let fake_recon = apply_arithmetic_obf(fake_recon);
 
     // Fake Paths
     for _ in 0..10 {
@@ -510,7 +562,7 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
         for _ in 0..rng.gen_range(3..7) {
             let all_codecs = Codec::all();
             let codec = all_codecs.choose(&mut rng).unwrap();
-            fake_decoding_ops.push(apply_arithmetic_obf(codec.get_decode_logic(&data_var)));
+            fake_decoding_ops.push(codec.get_decode_logic(&data_var));
         }
         let mut fake_states: Vec<u32> = (0..fake_decoding_ops.len() as u32).collect();
         fake_states.shuffle(&mut rng);
@@ -524,19 +576,18 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
                 999
             };
             let op = &fake_decoding_ops[i];
-            fake_arms.push(apply_arithmetic_obf(quote! {
+            fake_arms.push(quote! {
                 #cur => {
                     let mut #data_var = #fake_data_ident;
                     #op
                     #fake_data_ident = #data_var;
                     state = #nxt;
                 }
-            }));
+            });
         }
-        fake_arms.push(apply_arithmetic_obf(quote! { 999 => break, }));
+        fake_arms.push(quote! { 999 => break, });
         fake_arms.shuffle(&mut rng);
         paths.push((
-            fake_recon.clone(),
             fake_data_ident.clone(),
             fake_initial_state,
             fake_arms,
@@ -545,10 +596,10 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
     }
 
     paths.shuffle(&mut rng);
-    let real_path_idx = paths.iter().position(|p| p.4).unwrap() as u64;
+    let real_path_idx = paths.iter().position(|p| p.3).unwrap() as u64;
 
     let mut path_arms = Vec::new();
-    for (i, (recon, d_ident, i_state, arms, _)) in paths.iter().enumerate() {
+    for (i, (d_ident, i_state, arms, _)) in paths.iter().enumerate() {
         let idx = i as u64;
         let bytecode = generate_bytecode_for_val(*i_state as u64);
         let bytecode_lit = proc_macro2::Literal::byte_string(&bytecode);
@@ -559,9 +610,8 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
             quote! { final_result = Some(#d_ident.to_vec()); }
         };
 
-        path_arms.push(apply_arithmetic_obf(quote! {
+        path_arms.push(quote! {
             #idx => {
-                #recon
                 let mut vm = VM::new();
                 vm.execute(#bytecode_lit);
                 let mut state = vm.regs[0] as u32;
@@ -573,22 +623,20 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
                 }
                 #final_conv
             }
-        }));
+        });
     }
 
     let vm_def = generate_vm_logic();
     let real_idx_bytecode = generate_bytecode_for_val(real_path_idx);
     let real_idx_bytecode_lit = proc_macro2::Literal::byte_string(&real_idx_bytecode);
 
-    let gen = quote! {
+    let logic_block = quote! {
         {
-            use zeroize::Zeroize;
-            use crc32fast::Hasher;
-            #(#all_static_defs)*
             #key1_recon_logic
             #key2_recon_logic
-
             #vm_def
+            #real_recon
+            #fake_recon
 
             let mut final_result = None;
             let mut vm_idx = VM::new();
@@ -603,7 +651,16 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
         }
     };
 
-    gen
+    let obfuscated_logic = apply_arithmetic_obf(logic_block);
+
+    quote! {
+        {
+            use zeroize::Zeroize;
+            use crc32fast::Hasher;
+            #(#all_static_defs)*
+            #obfuscated_logic
+        }
+    }
 }
 
 #[proc_macro]
@@ -615,8 +672,7 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn obfuscate_bytes(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as Expr);
-    if let Some(bytes) = expr_to_bytes(&input) {
+    if let Some(bytes) = fast_parse_bytes(input) {
         obfuscate_data_internal(bytes, false).into()
     } else {
         panic!("obfuscate_bytes! only supports byte string literals (b\"...\") or array literals (&[...]) of bytes.");
