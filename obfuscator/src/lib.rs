@@ -153,6 +153,73 @@ fn generate_key_reconstruction_logic(
     (key_var, logic)
 }
 
+fn generate_vm_logic() -> proc_macro2::TokenStream {
+    quote! {
+        struct VM {
+            regs: [u64; 4],
+        }
+        impl VM {
+            fn new() -> Self {
+                Self { regs: [0; 4] }
+            }
+            fn execute(&mut self, bytecode: &[u8]) {
+                let mut pc = 0;
+                while pc < bytecode.len() {
+                    let op = bytecode[pc];
+                    pc += 1;
+                    match op {
+                        1 => {
+                            let reg = bytecode[pc] as usize;
+                            let mut val_bytes = [0u8; 8];
+                            val_bytes.copy_from_slice(&bytecode[pc + 1usize..pc + 9usize]);
+                            self.regs[reg] = u64::from_le_bytes(val_bytes);
+                            pc += 9usize;
+                        }
+                        2 => {
+                            let r1 = bytecode[pc] as usize;
+                            let r2 = bytecode[pc + 1usize] as usize;
+                            self.regs[r1] = self.regs[r1].wrapping_add(self.regs[r2]);
+                            pc += 2usize;
+                        }
+                        3 => {
+                            let r1 = bytecode[pc] as usize;
+                            let r2 = bytecode[pc + 1usize] as usize;
+                            self.regs[r1] = self.regs[r1].wrapping_sub(self.regs[r2]);
+                            pc += 2usize;
+                        }
+                        4 => {
+                            let r1 = bytecode[pc] as usize;
+                            let r2 = bytecode[pc + 1usize] as usize;
+                            self.regs[r1] ^= self.regs[r2];
+                            pc += 2usize;
+                        }
+                        _ => break,
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn generate_bytecode_for_val(val: u64) -> Vec<u8> {
+    let mut rng = thread_rng();
+    let mut bytecode = Vec::new();
+    let r1: u64 = rng.gen_range(1..1000);
+    let op = rng.gen_range(0..2);
+    if op == 0 {
+        let v_plus_r = val.wrapping_add(r1);
+        bytecode.push(1); bytecode.push(0); bytecode.extend_from_slice(&v_plus_r.to_le_bytes());
+        bytecode.push(1); bytecode.push(1); bytecode.extend_from_slice(&r1.to_le_bytes());
+        bytecode.push(3); bytecode.push(0); bytecode.push(1);
+    } else {
+        let v_xor_r = val ^ r1;
+        bytecode.push(1); bytecode.push(0); bytecode.extend_from_slice(&v_xor_r.to_le_bytes());
+        bytecode.push(1); bytecode.push(1); bytecode.extend_from_slice(&r1.to_le_bytes());
+        bytecode.push(4); bytecode.push(0); bytecode.push(1);
+    }
+    bytecode
+}
+
 #[proc_macro]
 pub fn obfuscate_string(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as LitStr);
@@ -210,33 +277,84 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
         decoding_ops.push(codec.get_decode_logic(&data_var));
     }
 
-    // Generate randomized state machine.
-    let num_ops = decoding_ops.len();
-    let mut states: Vec<u32> = (0..num_ops as u32).collect();
-    states.shuffle(&mut rng);
-    let initial_state = states[0];
+    // Generate 11 paths (1 real, 10 fake)
+    let mut paths = Vec::new();
 
-    let mut state_machine_arms = Vec::new();
-    for i in 0..num_ops {
-        let current_state = states[i];
-        let next_state = if i + 1 < num_ops { states[i+1] } else { 999 }; // 999 is the exit state.
+    // Real Path
+    let mut real_states: Vec<u32> = (0..decoding_ops.len() as u32).collect();
+    real_states.shuffle(&mut rng);
+    let real_initial_state = real_states[0];
+    let mut real_arms = Vec::new();
+    for i in 0..decoding_ops.len() {
+        let current_state = real_states[i];
+        let next_state = if i + 1 < decoding_ops.len() { real_states[i+1] } else { 999 };
         let op = &decoding_ops[i];
-        state_machine_arms.push(quote! {
+        real_arms.push(quote! {
             #current_state => {
                 #op
                 state = #next_state;
             }
         });
     }
-    // Add exit state.
-    state_machine_arms.push(quote! { 999 => break, });
-    // Add junk states.
-    for _ in 0..5 {
-        let junk_state: u32 = rng.gen_range(1000..=2000);
-        state_machine_arms.push(quote! { #junk_state => { /* unreachable */ }, });
-    }
-    state_machine_arms.shuffle(&mut rng);
+    real_arms.push(quote! { 999 => break, });
+    real_arms.shuffle(&mut rng);
+    paths.push((final_encoded, real_initial_state, real_arms, true));
 
+    // Fake Paths
+    for _ in 0..10 {
+        let fake_data_bytes: Vec<u8> = (0..data.len()).map(|_| rng.gen()).collect();
+        let fake_data_literal = proc_macro2::Literal::byte_string(&fake_data_bytes);
+        let mut fake_decoding_ops = Vec::new();
+        for _ in 0..rng.gen_range(3..7) {
+            let all_codecs = Codec::all();
+            let codec = all_codecs.choose(&mut rng).unwrap();
+            fake_decoding_ops.push(codec.get_decode_logic(&data_var));
+        }
+        let mut fake_states: Vec<u32> = (0..fake_decoding_ops.len() as u32).collect();
+        fake_states.shuffle(&mut rng);
+        let fake_initial_state = fake_states[0];
+        let mut fake_arms = Vec::new();
+        for i in 0..fake_decoding_ops.len() {
+            let cur = fake_states[i];
+            let nxt = if i + 1 < fake_decoding_ops.len() { fake_states[i+1] } else { 999 };
+            let op = &fake_decoding_ops[i];
+            fake_arms.push(quote! {
+                #cur => { #op state = #nxt; }
+            });
+        }
+        fake_arms.push(quote! { 999 => break, });
+        fake_arms.shuffle(&mut rng);
+        paths.push((fake_data_literal, fake_initial_state, fake_arms, false));
+    }
+
+    paths.shuffle(&mut rng);
+    let real_path_idx = paths.iter().position(|p| p.3).unwrap() as u64;
+
+    let mut path_arms = Vec::new();
+    for (i, (d_lit, i_state, arms, _)) in paths.iter().enumerate() {
+        let idx = i as u64;
+        let bytecode = generate_bytecode_for_val(*i_state as u64);
+        let bytecode_lit = proc_macro2::Literal::byte_string(&bytecode);
+        path_arms.push(quote! {
+            #idx => {
+                let mut #data_var = #d_lit.to_vec();
+                let mut vm = VM::new();
+                vm.execute(#bytecode_lit);
+                let mut state = vm.regs[0] as u32;
+                loop {
+                    match state {
+                        #(#arms)*
+                        _ => break,
+                    }
+                }
+                final_result = Some(String::from_utf8_lossy(&#data_var).to_string());
+            }
+        });
+    }
+
+    let vm_def = generate_vm_logic();
+    let real_idx_bytecode = generate_bytecode_for_val(real_path_idx);
+    let real_idx_bytecode_lit = proc_macro2::Literal::byte_string(&real_idx_bytecode);
 
     let gen = quote! {
         {
@@ -244,23 +362,32 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
             use crc32fast::Hasher;
             #key1_defs
             #key2_defs
-
             #key1_recon_logic
             #key2_recon_logic
 
-            let mut #data_var = #final_encoded.to_vec();
+            #vm_def
 
-            let mut state = #initial_state;
-            loop {
-                match state {
-                    #(#state_machine_arms)*
-                    _ => { /* Default case, can be used for anti-tampering */ }
-                }
+            let mut final_result = None;
+            let mut vm_idx = VM::new();
+            vm_idx.execute(#real_idx_bytecode_lit);
+            let target_idx = vm_idx.regs[0];
+
+            match target_idx {
+                #(#path_arms)*
+                _ => {}
             }
-
-            String::from_utf8(#data_var).unwrap()
+            final_result.unwrap()
         }
     };
+
+    let mut visitor = ArithmeticObfuscator { enabled: true };
+    let mut file: syn::File = syn::parse2(quote! { fn dummy() { #gen } }).unwrap();
+    visitor.visit_file_mut(&mut file);
+    let content = &file.items[0];
+    if let syn::Item::Fn(f) = content {
+        let block = &f.block;
+        return quote! { #block }.into();
+    }
 
     gen.into()
 }
@@ -306,6 +433,7 @@ struct ObfuscatorArgs {
     main: bool,
     inline: bool,
     control_f: bool,
+    arithmetic: bool,
 }
 
 impl ObfuscatorArgs {
@@ -313,7 +441,7 @@ impl ObfuscatorArgs {
         let mut args = Self::default();
         for attr in attrs {
             if let Meta::NameValue(nv) = attr {
-                if nv.path.is_ident("fonk_len") {
+                if nv.path.is_ident("fonk_len") || nv.path.is_ident("len") {
                     if let Expr::Lit(ExprLit { lit: Lit::Int(lit_int), .. }) = &nv.value {
                         args.fonk_len = lit_int.base10_parse().ok();
                     }
@@ -332,6 +460,10 @@ impl ObfuscatorArgs {
                 } else if nv.path.is_ident("control_f") {
                     if let Expr::Lit(ExprLit { lit: Lit::Bool(lit_bool), .. }) = &nv.value {
                         args.control_f = lit_bool.value;
+                    }
+                } else if nv.path.is_ident("arithmetic") {
+                    if let Expr::Lit(ExprLit { lit: Lit::Bool(lit_bool), .. }) = &nv.value {
+                        args.arithmetic = lit_bool.value;
                     }
                 }
             }
@@ -369,8 +501,62 @@ pub fn obfuscate(attr: TokenStream, item: TokenStream) -> TokenStream {
         visitor.visit_item_fn_mut(&mut subject_fn);
     }
 
+    if args.arithmetic {
+        let mut visitor = ArithmeticObfuscator { enabled: true };
+        visitor.visit_item_fn_mut(&mut subject_fn);
+    }
+
     output.extend(quote! { #subject_fn });
     output.into()
+}
+
+struct ArithmeticObfuscator {
+    enabled: bool,
+}
+
+impl VisitMut for ArithmeticObfuscator {
+    fn visit_expr_mut(&mut self, expr: &mut Expr) {
+        if !self.enabled {
+            return;
+        }
+        if let Expr::Lit(ExprLit {
+            lit: Lit::Int(lit_int),
+            ..
+        }) = expr
+        {
+            let suffix = lit_int.suffix();
+            if let Ok(val) = lit_int.base10_parse::<u64>() {
+                if val < 10 {
+                    return;
+                }
+                let mut rng = thread_rng();
+                let r: u64 = rng.gen_range(1..1000);
+                let op = rng.gen_range(0..2);
+
+                let new_expr = if suffix.is_empty() {
+                    match op {
+                        0 => quote! { (#val.wrapping_add(#r as _).wrapping_sub(#r as _)) },
+                        1 => quote! { (#val ^ (#r as _) ^ (#r as _)) },
+                        _ => unreachable!(),
+                    }
+                } else {
+                    let s = syn::Ident::new(suffix, proc_macro2::Span::call_site());
+                    match op {
+                        0 => {
+                            quote! { ((#val as #s).wrapping_add(#r as #s).wrapping_sub(#r as #s)) }
+                        }
+                        1 => quote! { ((#val as #s) ^ (#r as #s) ^ (#r as #s)) },
+                        _ => unreachable!(),
+                    }
+                };
+                if let Ok(e) = syn::parse2(new_expr) {
+                    *expr = e;
+                    return;
+                }
+            }
+        }
+        visit_mut::visit_expr_mut(self, expr);
+    }
 }
 
 struct ControlFlowObfuscator;
