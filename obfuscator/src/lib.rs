@@ -480,13 +480,14 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
         true,
     ));
 
-    // Fake Paths
-    for j in 0..10 {
-        let fake_data_bytes: Vec<u8> = (0..data.len()).map(|_| rng.gen()).collect();
-        let (fake_defs, fake_recon, fake_data_ident) =
-            generate_data_fragments(&fake_data_bytes, &format!("F{}{}", j, call_id));
-        all_static_defs.push(fake_defs);
+    // Shared Fake Path Data
+    let fake_data_bytes: Vec<u8> = (0..data.len()).map(|_| rng.gen()).collect();
+    let (fake_defs, fake_recon, fake_data_ident) =
+        generate_data_fragments(&fake_data_bytes, &format!("F{}", call_id));
+    all_static_defs.push(fake_defs);
 
+    // Fake Paths
+    for _ in 0..10 {
         let mut fake_decoding_ops = Vec::new();
         for _ in 0..rng.gen_range(3..7) {
             let all_codecs = Codec::all();
@@ -517,8 +518,8 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
         fake_arms.push(quote! { 999 => break, });
         fake_arms.shuffle(&mut rng);
         paths.push((
-            fake_recon,
-            fake_data_ident,
+            fake_recon.clone(),
+            fake_data_ident.clone(),
             fake_initial_state,
             fake_arms,
             false,
