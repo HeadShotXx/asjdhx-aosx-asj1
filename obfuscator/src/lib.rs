@@ -208,6 +208,34 @@ fn generate_data_fragments(data: &[u8], prefix: &str) -> (proc_macro2::TokenStre
     (quote! { #(#static_defs)* }, recon_logic, data_ident)
 }
 
+fn expr_to_bytes(expr: &Expr) -> Option<Vec<u8>> {
+    match expr {
+        Expr::Reference(r) => expr_to_bytes(&r.expr),
+        Expr::Array(a) => {
+            let mut bytes = Vec::new();
+            for elem in &a.elems {
+                if let Expr::Lit(ExprLit {
+                    lit: Lit::Int(li), ..
+                }) = elem
+                {
+                    bytes.push(li.base10_parse::<u8>().ok()?);
+                } else {
+                    return None;
+                }
+            }
+            Some(bytes)
+        }
+        Expr::Lit(ExprLit {
+            lit: Lit::ByteStr(lbs),
+            ..
+        }) => Some(lbs.value()),
+        Expr::Lit(ExprLit {
+            lit: Lit::Str(ls), ..
+        }) => Some(ls.value().into_bytes()),
+        _ => None,
+    }
+}
+
 fn generate_vm_logic() -> proc_macro2::TokenStream {
     quote! {
         struct VM {
@@ -337,11 +365,13 @@ fn generate_bytecode_for_val(val: u64) -> Vec<u8> {
     bytecode
 }
 
-#[proc_macro]
-pub fn obfuscate_string(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as LitStr);
-    let original_str = input.value();
+fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2::TokenStream {
     let mut rng = thread_rng();
+    let call_id: String = thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(6)
+        .map(char::from)
+        .collect();
 
     let mut codecs = Codec::all();
     codecs.shuffle(&mut rng);
@@ -352,27 +382,43 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
     let (key1, key1_defs, key1_frag_vars, key1_checksum_vars) = generate_key_fragments(16);
     let (key2, key2_defs, key2_frag_vars, key2_checksum_vars) = generate_key_fragments(16);
 
-    let mut data = original_str.as_bytes().to_vec();
+    let mut data = data_bytes;
 
     for codec in first_codecs {
         data = codec.encode(&data);
     }
-    data = data.iter().zip(key1.iter().cycle()).map(|(&b, &k)| b ^ k).collect();
+    data = data
+        .iter()
+        .zip(key1.iter().cycle())
+        .map(|(&b, &k)| b ^ k)
+        .collect();
     for codec in second_codecs {
         data = codec.encode(&data);
     }
-    data = data.iter().zip(key2.iter().cycle()).map(|(&b, &k)| b ^ k).collect();
+    data = data
+        .iter()
+        .zip(key2.iter().cycle())
+        .map(|(&b, &k)| b ^ k)
+        .collect();
     for codec in third_codecs {
         data = codec.encode(&data);
     }
 
     let data_var = syn::Ident::new("data", proc_macro2::Span::call_site());
 
-    let (key1_var, key1_recon_logic) = generate_key_reconstruction_logic("reconstructed_key_1", 16, &key1_frag_vars, &key1_checksum_vars);
-    let (key2_var, key2_recon_logic) = generate_key_reconstruction_logic("reconstructed_key_2", 16, &key2_frag_vars, &key2_checksum_vars);
+    let (key1_var, key1_recon_logic) = generate_key_reconstruction_logic(
+        "reconstructed_key_1",
+        16,
+        &key1_frag_vars,
+        &key1_checksum_vars,
+    );
+    let (key2_var, key2_recon_logic) = generate_key_reconstruction_logic(
+        "reconstructed_key_2",
+        16,
+        &key2_frag_vars,
+        &key2_checksum_vars,
+    );
 
-    // Create a list of all decoding operations.
-    // Create a list of all decoding operations.
     let mut decoding_ops = Vec::new();
     for codec in third_codecs.iter().rev() {
         decoding_ops.push(codec.get_decode_logic(&data_var));
@@ -399,7 +445,8 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
     all_static_defs.push(key2_defs);
 
     // Real Path
-    let (real_defs, real_recon, real_data_ident) = generate_data_fragments(&data, "R");
+    let (real_defs, real_recon, real_data_ident) =
+        generate_data_fragments(&data, &format!("R{}", call_id));
     all_static_defs.push(real_defs);
 
     let mut real_states: Vec<u32> = (0..decoding_ops.len() as u32).collect();
@@ -408,7 +455,11 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
     let mut real_arms = Vec::new();
     for i in 0..decoding_ops.len() {
         let current_state = real_states[i];
-        let next_state = if i + 1 < decoding_ops.len() { real_states[i+1] } else { 999 };
+        let next_state = if i + 1 < decoding_ops.len() {
+            real_states[i + 1]
+        } else {
+            999
+        };
         let op = &decoding_ops[i];
         real_arms.push(quote! {
             #current_state => {
@@ -421,12 +472,19 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
     }
     real_arms.push(quote! { 999 => break, });
     real_arms.shuffle(&mut rng);
-    paths.push((real_recon, real_data_ident, real_initial_state, real_arms, true));
+    paths.push((
+        real_recon,
+        real_data_ident,
+        real_initial_state,
+        real_arms,
+        true,
+    ));
 
     // Fake Paths
     for j in 0..10 {
         let fake_data_bytes: Vec<u8> = (0..data.len()).map(|_| rng.gen()).collect();
-        let (fake_defs, fake_recon, fake_data_ident) = generate_data_fragments(&fake_data_bytes, &format!("F{}", j));
+        let (fake_defs, fake_recon, fake_data_ident) =
+            generate_data_fragments(&fake_data_bytes, &format!("F{}{}", j, call_id));
         all_static_defs.push(fake_defs);
 
         let mut fake_decoding_ops = Vec::new();
@@ -441,7 +499,11 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
         let mut fake_arms = Vec::new();
         for i in 0..fake_decoding_ops.len() {
             let cur = fake_states[i];
-            let nxt = if i + 1 < fake_decoding_ops.len() { fake_states[i+1] } else { 999 };
+            let nxt = if i + 1 < fake_decoding_ops.len() {
+                fake_states[i + 1]
+            } else {
+                999
+            };
             let op = &fake_decoding_ops[i];
             fake_arms.push(quote! {
                 #cur => {
@@ -454,7 +516,13 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
         }
         fake_arms.push(quote! { 999 => break, });
         fake_arms.shuffle(&mut rng);
-        paths.push((fake_recon, fake_data_ident, fake_initial_state, fake_arms, false));
+        paths.push((
+            fake_recon,
+            fake_data_ident,
+            fake_initial_state,
+            fake_arms,
+            false,
+        ));
     }
 
     paths.shuffle(&mut rng);
@@ -465,6 +533,13 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
         let idx = i as u64;
         let bytecode = generate_bytecode_for_val(*i_state as u64);
         let bytecode_lit = proc_macro2::Literal::byte_string(&bytecode);
+
+        let final_conv = if is_string {
+            quote! { final_result = Some(String::from_utf8_lossy(&#d_ident).to_string()); }
+        } else {
+            quote! { final_result = Some(#d_ident.to_vec()); }
+        };
+
         path_arms.push(quote! {
             #idx => {
                 #recon
@@ -477,7 +552,7 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
                         _ => break,
                     }
                 }
-                final_result = Some(String::from_utf8_lossy(&#d_ident).to_string());
+                #final_conv
             }
         });
     }
@@ -518,7 +593,24 @@ pub fn obfuscate_string(input: TokenStream) -> TokenStream {
         return quote! { #block }.into();
     }
 
-    gen.into()
+    gen
+}
+
+#[proc_macro]
+pub fn obfuscate_string(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as LitStr);
+    let original_str = input.value();
+    obfuscate_data_internal(original_str.into_bytes(), true).into()
+}
+
+#[proc_macro]
+pub fn obfuscate_bytes(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as Expr);
+    if let Some(bytes) = expr_to_bytes(&input) {
+        obfuscate_data_internal(bytes, false).into()
+    } else {
+        panic!("obfuscate_bytes! only supports byte string literals (b\"...\") or array literals (&[...]) of bytes.");
+    }
 }
 
 fn apply_main_obfuscation(mut main_fn: ItemFn) -> (proc_macro2::TokenStream, ItemFn) {
