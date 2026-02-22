@@ -365,6 +365,18 @@ fn generate_bytecode_for_val(val: u64) -> Vec<u8> {
     bytecode
 }
 
+fn apply_arithmetic_obf(tokens: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+    let mut visitor = ArithmeticObfuscator { enabled: true };
+    if let Ok(mut file) = syn::parse2::<syn::File>(quote! { fn dummy() { #tokens } }) {
+        visitor.visit_file_mut(&mut file);
+        if let Some(syn::Item::Fn(f)) = file.items.first() {
+            let stmts = &f.block.stmts;
+            return quote! { #(#stmts)* };
+        }
+    }
+    tokens
+}
+
 fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2::TokenStream {
     let mut rng = thread_rng();
     let call_id: String = thread_rng()
@@ -419,23 +431,26 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
         &key2_checksum_vars,
     );
 
+    let key1_recon_logic = apply_arithmetic_obf(key1_recon_logic);
+    let key2_recon_logic = apply_arithmetic_obf(key2_recon_logic);
+
     let mut decoding_ops = Vec::new();
     for codec in third_codecs.iter().rev() {
-        decoding_ops.push(codec.get_decode_logic(&data_var));
+        decoding_ops.push(apply_arithmetic_obf(codec.get_decode_logic(&data_var)));
     }
-    decoding_ops.push(quote! {
+    decoding_ops.push(apply_arithmetic_obf(quote! {
         #data_var = #data_var.iter().zip(#key2_var.iter().cycle()).map(|(&b, &k)| b ^ k).collect();
         #key2_var.zeroize();
-    });
+    }));
     for codec in second_codecs.iter().rev() {
-        decoding_ops.push(codec.get_decode_logic(&data_var));
+        decoding_ops.push(apply_arithmetic_obf(codec.get_decode_logic(&data_var)));
     }
-    decoding_ops.push(quote! {
+    decoding_ops.push(apply_arithmetic_obf(quote! {
         #data_var = #data_var.iter().zip(#key1_var.iter().cycle()).map(|(&b, &k)| b ^ k).collect();
         #key1_var.zeroize();
-    });
+    }));
     for codec in first_codecs.iter().rev() {
-        decoding_ops.push(codec.get_decode_logic(&data_var));
+        decoding_ops.push(apply_arithmetic_obf(codec.get_decode_logic(&data_var)));
     }
 
     // Generate 11 paths (1 real, 10 fake)
@@ -448,6 +463,7 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
     let (real_defs, real_recon, real_data_ident) =
         generate_data_fragments(&data, &format!("R{}", call_id));
     all_static_defs.push(real_defs);
+    let real_recon = apply_arithmetic_obf(real_recon);
 
     let mut real_states: Vec<u32> = (0..decoding_ops.len() as u32).collect();
     real_states.shuffle(&mut rng);
@@ -461,16 +477,16 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
             999
         };
         let op = &decoding_ops[i];
-        real_arms.push(quote! {
+        real_arms.push(apply_arithmetic_obf(quote! {
             #current_state => {
                 let mut #data_var = #real_data_ident;
                 #op
                 #real_data_ident = #data_var;
                 state = #next_state;
             }
-        });
+        }));
     }
-    real_arms.push(quote! { 999 => break, });
+    real_arms.push(apply_arithmetic_obf(quote! { 999 => break, }));
     real_arms.shuffle(&mut rng);
     paths.push((
         real_recon,
@@ -481,10 +497,12 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
     ));
 
     // Shared Fake Path Data
-    let fake_data_bytes: Vec<u8> = (0..data.len()).map(|_| rng.gen()).collect();
+    let fake_len = if data.len() > 4096 { 1024 } else { data.len() };
+    let fake_data_bytes: Vec<u8> = (0..fake_len).map(|_| rng.gen()).collect();
     let (fake_defs, fake_recon, fake_data_ident) =
         generate_data_fragments(&fake_data_bytes, &format!("F{}", call_id));
     all_static_defs.push(fake_defs);
+    let fake_recon = apply_arithmetic_obf(fake_recon);
 
     // Fake Paths
     for _ in 0..10 {
@@ -492,7 +510,7 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
         for _ in 0..rng.gen_range(3..7) {
             let all_codecs = Codec::all();
             let codec = all_codecs.choose(&mut rng).unwrap();
-            fake_decoding_ops.push(codec.get_decode_logic(&data_var));
+            fake_decoding_ops.push(apply_arithmetic_obf(codec.get_decode_logic(&data_var)));
         }
         let mut fake_states: Vec<u32> = (0..fake_decoding_ops.len() as u32).collect();
         fake_states.shuffle(&mut rng);
@@ -506,16 +524,16 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
                 999
             };
             let op = &fake_decoding_ops[i];
-            fake_arms.push(quote! {
+            fake_arms.push(apply_arithmetic_obf(quote! {
                 #cur => {
                     let mut #data_var = #fake_data_ident;
                     #op
                     #fake_data_ident = #data_var;
                     state = #nxt;
                 }
-            });
+            }));
         }
-        fake_arms.push(quote! { 999 => break, });
+        fake_arms.push(apply_arithmetic_obf(quote! { 999 => break, }));
         fake_arms.shuffle(&mut rng);
         paths.push((
             fake_recon.clone(),
@@ -541,7 +559,7 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
             quote! { final_result = Some(#d_ident.to_vec()); }
         };
 
-        path_arms.push(quote! {
+        path_arms.push(apply_arithmetic_obf(quote! {
             #idx => {
                 #recon
                 let mut vm = VM::new();
@@ -555,7 +573,7 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
                 }
                 #final_conv
             }
-        });
+        }));
     }
 
     let vm_def = generate_vm_logic();
@@ -584,15 +602,6 @@ fn obfuscate_data_internal(data_bytes: Vec<u8>, is_string: bool) -> proc_macro2:
             final_result.unwrap()
         }
     };
-
-    let mut visitor = ArithmeticObfuscator { enabled: true };
-    let mut file: syn::File = syn::parse2(quote! { fn dummy() { #gen } }).unwrap();
-    visitor.visit_file_mut(&mut file);
-    let content = &file.items[0];
-    if let syn::Item::Fn(f) = content {
-        let block = &f.block;
-        return quote! { #block }.into();
-    }
 
     gen
 }
