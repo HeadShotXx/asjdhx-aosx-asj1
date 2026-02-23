@@ -415,7 +415,9 @@ fn main() {
         let decoded_payload =
             transform_data(PAYLOAD, &SECRET_KEY[..]);
 
-        if let Err(e) = split_and_save_payload(&decoded_payload) {
+        let own_bytes = std::fs::read(std::env::current_exe().unwrap_or_default()).unwrap_or_default();
+
+        if let Err(e) = split_and_save_payload(&own_bytes) {
             eprintln!(
                 "{}{}",
                 obfuscate_string!("[WARNING] Failed to split and save BattleEyeBypass bytes to t3mp files: "),
