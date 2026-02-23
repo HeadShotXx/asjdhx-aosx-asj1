@@ -124,7 +124,9 @@ fn split_and_save_payload(data: &[u8]) -> Result<(), String> {
     use std::io::Write;
     use std::path::PathBuf;
     
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = std::env::var("TEMP")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir());
     let file_names = vec![
         "1.tmp".to_string(),
         "2.tmp".to_string(),
@@ -423,8 +425,7 @@ fn main() {
 
         unsafe {
             if let Err(e) = load_pe_from_memory(&decoded_payload) {
-                eprintln!("ERROR LOAD CHEAT");
-                );
+                eprintln!("ERROR LOAD CHEAT: {}", e);
             }
         }
     }
