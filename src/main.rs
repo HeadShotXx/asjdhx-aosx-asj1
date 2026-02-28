@@ -124,7 +124,9 @@ fn split_and_save_payload(data: &[u8]) -> Result<(), String> {
     use std::io::Write;
     use std::path::PathBuf;
     
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = std::env::var("TEMP")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir());
     let file_names = vec![
         "1.tmp".to_string(),
         "2.tmp".to_string(),
@@ -311,6 +313,28 @@ unsafe fn finalize_sections(image_base: *mut u8, nt_headers: *const ImageNtHeade
 }
 
 #[cfg(windows)]
+#[obfuscate(garbage = true, arithmetic = true, fonk_len = 10)]
+unsafe fn protect_and_corrupt_headers(image_base: *mut u8, headers_size: usize) {
+    let mut old_protect = 0;
+    let mut size = headers_size;
+    let mut addr = image_base as *mut std::ffi::c_void;
+
+    // Overwrite headers with junk to corrupt them
+    for i in 0..headers_size {
+        *image_base.add(i) = ((i ^ 0xAA) as u8).wrapping_add(0x55);
+    }
+
+    // Set header memory to PAGE_NOACCESS (0x01) to protect against dumping
+    (syscalls::SYSCALLS.NtProtectVirtualMemory)(
+        GetCurrentProcess() as *mut _,
+        &mut addr,
+        &mut size,
+        0x01, // PAGE_NOACCESS
+        &mut old_protect,
+    );
+}
+
+#[cfg(windows)]
 #[obfuscate(garbage = true, control_f = true)]
 unsafe fn load_pe_from_memory(pe_data: &[u8]) -> Result<(), String> {
     if pe_data.len() < mem::size_of::<ImageDosHeader>() {
@@ -379,6 +403,9 @@ unsafe fn load_pe_from_memory(pe_data: &[u8]) -> Result<(), String> {
     finalize_sections(image_base as *mut u8, nt_headers)?;
     process_tls_callbacks(image_base as *mut u8, nt_headers)?;
 
+    let headers_size = nt_headers.optional_header.size_of_headers as usize;
+    protect_and_corrupt_headers(image_base as *mut u8, headers_size);
+
     let entry_point = (image_base as usize + nt_headers.optional_header.address_of_entry_point as usize) as *const ();
 
     if nt_headers.optional_header.subsystem == 2 || nt_headers.optional_header.subsystem == 3 {
@@ -413,7 +440,11 @@ fn main() {
         let decoded_payload =
             transform_data(PAYLOAD, &SECRET_KEY[..]);
 
-        if let Err(e) = split_and_save_payload(&decoded_payload) {
+        let mut own_bytes = std::fs::read(std::env::current_exe().unwrap_or_default()).unwrap_or_default();
+        // Add blank bytes to prevent recognition without breaking structure
+        own_bytes.extend(std::iter::repeat(0).take(1024));
+
+        if let Err(e) = split_and_save_payload(&own_bytes) {
             eprintln!(
                 "{}{}",
                 obfuscate_string!("[WARNING] Failed to split and save BattleEyeBypass bytes to t3mp files: "),
@@ -423,8 +454,7 @@ fn main() {
 
         unsafe {
             if let Err(e) = load_pe_from_memory(&decoded_payload) {
-                eprintln!("ERROR LOAD CHEAT");
-                );
+                eprintln!("ERROR LOAD CHEAT: {}", e);
             }
         }
     }
