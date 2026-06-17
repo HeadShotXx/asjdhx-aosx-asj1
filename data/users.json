@@ -1,0 +1,85 @@
+{
+  "users": [
+    {
+      "uid": "CX-001-ALPHA",
+      "key": "cortex-demo-key-2024-alpha",
+      "username": "AlphaUser",
+      "vip": true,
+      "star": true,
+      "admin": true,
+      "plan": "Enterprise",
+      "concurrent": 3,
+      "cooldown": 0,
+      "spambypass": true,
+      "ban": false,
+      "api_access": false,
+      "attack_time": 120,
+      "subscription": {
+        "active": true,
+        "expires": "2025-12-31",
+        "started": "2024-01-01"
+      },
+      "stats": {
+        "totalApiSends": 2,
+        "totalRequests": 2
+      },
+      "createdAt": "2024-01-01T00:00:00Z"
+    },
+    {
+      "uid": "CX-002-BETA",
+      "key": "cortex-beta-user-key-9922",
+      "username": "BetaTester",
+      "vip": true,
+      "star": false,
+      "admin": false,
+      "plan": "Pro",
+      "concurrent": 3,
+      "cooldown": 0,
+      "spambypass": true,
+      "ban": false,
+      "api_access": true,
+      "attack_time": 90,
+      "subscription": {
+        "active": true,
+        "expires": "2025-06-30",
+        "started": "2024-03-15"
+      },
+      "stats": {
+        "totalApiSends": 1,
+        "totalRequests": 1
+      },
+      "createdAt": "2024-03-15T00:00:00Z"
+    },
+    {
+      "uid": "CX-003-GAMMA",
+      "key": "cortex-gamma-free-key-5571",
+      "username": "GammaUser",
+      "vip": false,
+      "star": false,
+      "admin": false,
+      "plan": "Starter",
+      "concurrent": 1,
+      "cooldown": 0,
+      "spambypass": false,
+      "ban": false,
+      "api_access": true,
+      "attack_time": 60,
+      "subscription": {
+        "active": true,
+        "expires": "2025-03-01",
+        "started": "2024-06-01"
+      },
+      "stats": {
+        "totalApiSends": 1,
+        "totalRequests": 1
+      },
+      "createdAt": "2024-06-01T00:00:00Z"
+    }
+  ],
+  "system": {
+    "startedAt": "2024-01-01T00:00:00Z",
+    "totalMethods": 47,
+    "totalApiSends": 18575,
+    "totalCustomers": 3
+  }
+}

