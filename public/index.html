@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cortex - Stress Testing Platform</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+
+  <div id="view-landing" class="landing">
+    <nav class="landing-nav">
+      <a href="/" class="logo">
+        <div class="logo-icon"><span data-icon="bolt"></span></div>
+        <span class="logo-text">Cortex</span>
+      </a>
+      <a href="#" id="go-login" class="nav-btn"><span data-icon="bolt"></span> Dashboard'a Giriş</a>
+    </nav>
+
+    <section class="hero">
+      <div class="hero-badge"><span class="status-dot"></span> Sistem Aktif <span>- Tüm node'lar çalışıyor</span></div>
+      <h1>Profesyonel <em>Stress Testing</em> Platformu</h1>
+      <p class="hero-sub">
+        Cortex ile altyapınızı test edin, API metriklerinizi izleyin ve
+        yüksek performanslı stress test senaryolarını tek panelden yönetin.
+      </p>
+    </section>
+
+    <div class="stats-bar">
+      <div class="stat-cell">
+        <div class="stat-value"><span class="accent">47</span>+</div>
+        <div class="stat-label">API Method</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-value">18.5<span class="accent">K</span></div>
+        <div class="stat-label">Toplam Send</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-value">99.<span class="accent">9</span>%</div>
+        <div class="stat-label">Uptime</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-value"><span class="accent">3</span></div>
+        <div class="stat-label">Aktif Müşteri</div>
+      </div>
+    </div>
+
+    <section class="features">
+      <div class="section-label">Özellikler</div>
+      <h2 class="section-title">Neden Cortex?</h2>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon"><span data-icon="bolt"></span></div>
+          <h3>Yüksek Performans</h3>
+          <p>256 thread desteği ile saniyede binlerce istek gönderin. Düşük gecikme, yüksek throughput.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon"><span data-icon="radio"></span></div>
+          <h3>47+ Method</h3>
+          <p>L3, L4 ve L7 katmanlarında kapsamlı stress test metodları. HTTP, UDP, TCP ve daha fazlası.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon"><span data-icon="barChart"></span></div>
+          <h3>Canlı Dashboard</h3>
+          <p>Gerçek zamanlı metrikler, aktivite logu ve detaylı API yanıt analizi tek ekranda.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon"><span data-icon="shield"></span></div>
+          <h3>Key Tabanlı Auth</h3>
+          <p>Her kullanıcıya özel API key ile güvenli erişim. VIP ve Enterprise plan desteği.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon"><span data-icon="globe"></span></div>
+          <h3>Global Node'lar</h3>
+          <p>EU-WEST, US-EAST ve APAC bölgelerinde dağıtık test altyapısı.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon"><span data-icon="diamond"></span></div>
+          <h3>VIP Methodlar</h3>
+          <p>WAF bypass, SSL flood ve amplification testleri VIP abonelere özel.</p>
+        </div>
+      </div>
+    </section>
+
+    <footer class="landing-footer">
+      <span>© 2024 Cortex Platform</span>
+      <span>Stress Testing &amp; Infrastructure Analysis</span>
+    </footer>
+  </div>
+
+  <div id="view-login" class="login-page" style="display:none">
+    <div class="login-card fade-in">
+      <div class="login-header">
+        <div class="login-logo">
+          <div class="logo-icon"><span data-icon="bolt"></span></div>
+          <span class="logo-text">Cortex</span>
+        </div>
+        <h2>Dashboard Girişi</h2>
+        <p>API key'inizi girerek devam edin</p>
+      </div>
+
+      <div id="login-error" class="alert alert-error"></div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label class="form-label" for="key-input">API Key</label>
+          <input type="password" id="key-input" class="form-input" placeholder="cortex-xxxx-key-xxxx" autocomplete="off">
+          <p class="form-hint">Demo: cortex-demo-key-2024-alpha</p>
+        </div>
+        <button type="submit" id="login-btn" class="btn-primary">
+          <span class="btn-shimmer"></span>
+          <span data-icon="bolt"></span> Giriş Yap
+        </button>
+      </form>
+
+      <a href="#" id="back-home" class="back-link"><span data-icon="arrowLeft"></span> Ana sayfaya dön</a>
+    </div>
+  </div>
+
+  <script src="/js/utils.js"></script>
+  <script src="/js/auth.js"></script>
+</body>
+</html>
