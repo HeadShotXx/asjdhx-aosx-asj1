@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Terms of Service — DragonST{% endblock %}
+{% block head %}
+<style>
+  .tos-wrap { max-width: 760px; margin: 0 auto; padding: 140px 2rem 80px; }
+  .tos-wrap .section-label { font-size: .75rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--red); margin-bottom: 1rem; }
+  .tos-wrap h1 { font-family: 'Space Grotesk', sans-serif; font-size: 2.5rem; font-weight: 700; color: var(--white); margin-bottom: 2rem; letter-spacing: -.02em; }
+  .tos-section { margin-bottom: 2.5rem; }
+  .tos-section h2 { font-size: 1.1rem; font-weight: 600; color: var(--white); margin-bottom: .75rem; }
+  .tos-section p { font-size: .9rem; color: var(--muted); line-height: 1.8; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="tos-wrap">
+  <div class="section-label">Legal</div>
+  <h1>Terms of Service</h1>
+  <p style="color:var(--muted);font-size:.875rem;margin-bottom:2rem;">Last updated: October 2026</p>
+  <hr>
+
+  <div class="tos-section">
+    <h2>1. Acceptance</h2>
+    <p>By accessing or using DragonST ("the Platform"), you agree to be bound by these Terms of Service. If you do not agree, do not use the Platform.</p>
+  </div>
+  <div class="tos-section">
+    <h2>2. Permitted Use</h2>
+    <p>The Platform may only be used for authorized infrastructure stress testing. You must own or have explicit written permission to test any target system. Using DragonST against systems you do not own or have authorization for is strictly prohibited and may constitute a criminal offense under applicable law.</p>
+  </div>
+  <div class="tos-section">
+    <h2>3. Prohibited Activities</h2>
+    <p>You may not use DragonST to conduct unauthorized DDoS attacks, disrupt third-party services, engage in any illegal activity, or resell access without prior written consent from DragonST.</p>
+  </div>
+  <div class="tos-section">
+    <h2>4. Account Responsibility</h2>
+    <p>You are responsible for all activity under your account. Keep credentials secure. DragonST reserves the right to suspend or terminate accounts that violate these Terms immediately and without notice.</p>
+  </div>
+  <div class="tos-section">
+    <h2>5. Limitation of Liability</h2>
+    <p>DragonST is provided "as is." We are not liable for any damages arising from use or inability to use the service, including indirect, incidental, or consequential damages.</p>
+  </div>
+  <div class="tos-section">
+    <h2>6. Changes to Terms</h2>
+    <p>We may update these Terms at any time. Continued use of the Platform after changes constitutes acceptance of the revised Terms.</p>
+  </div>
+  <div class="tos-section">
+    <h2>7. Contact</h2>
+    <p>For legal inquiries contact: legal@dragonst.io</p>
+  </div>
+</div>
+{% endblock %}

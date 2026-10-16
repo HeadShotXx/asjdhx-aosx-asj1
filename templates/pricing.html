@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Pricing — DragonST{% endblock %}
+{% block head %}
+<style>
+  .pricing-hero {
+    padding: 140px 2rem 60px;
+    text-align: center; max-width: 700px; margin: 0 auto;
+  }
+  .pricing-hero .section-label {
+    font-size: .75rem; font-weight: 600; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--red); margin-bottom: 1rem;
+  }
+  .pricing-hero h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: clamp(2.2rem, 5vw, 3.8rem); font-weight: 700;
+    letter-spacing: -.03em; color: var(--white); margin-bottom: 1rem;
+  }
+  .pricing-hero p { color: var(--muted); font-size: 1rem; line-height: 1.6; }
+
+  .plans { max-width: 900px; margin: 0 auto; padding: 0 2rem 100px; }
+  .plans-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1px; border: 1px solid var(--border); }
+
+  .plan { background: var(--card); padding: 2rem; position: relative; }
+  .plan.featured {
+    background: var(--redbg);
+    border: 1px solid var(--red);
+    margin: -1px;
+    z-index: 1;
+  }
+  .plan-badge {
+    position: absolute; top: -1px; right: 2rem;
+    background: var(--red); color: #fff;
+    font-size: .65rem; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; padding: .25rem .7rem;
+  }
+  .plan-tier { font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 1rem; }
+  .plan-price {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 3rem; font-weight: 700; color: var(--white);
+  }
+  .plan-price span { font-size: 1.2rem; color: var(--muted); }
+  .plan-period { font-size: .8rem; color: var(--muted); margin-bottom: 1.5rem; }
+  .plan-divider { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
+  .plan-features { list-style: none; margin-bottom: 2rem; }
+  .plan-features li {
+    font-size: .875rem; color: var(--text);
+    padding: .4rem 0; display: flex; align-items: center; gap: .6rem;
+  }
+  .plan-features li.off { color: var(--muted); }
+  .plan-features li .chk { color: var(--red2); }
+  .plan-features li .no  { color: #333; }
+
+  .plan-specs { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); margin-bottom: 1.5rem; }
+  .spec { background: #0d0d0d; padding: .75rem; }
+  .plan.featured .spec { background: rgba(0,0,0,.4); }
+  .spec .sv { font-family: 'Space Grotesk', sans-serif; font-size: 1.1rem; font-weight: 700; color: var(--white); }
+  .spec .sk { font-size: .65rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+  .plan-btn { display: block; width: 100%; padding: .85rem; border: 1px solid var(--border); background: transparent; color: var(--text); font-size: .875rem; font-weight: 600; cursor: pointer; text-align: center; transition: all .2s; border-radius: 2px; }
+  .plan-btn:hover { border-color: var(--red); color: var(--red2); }
+  .plan.featured .plan-btn { background: var(--red); border-color: var(--red); color: #fff; }
+  .plan.featured .plan-btn:hover { background: var(--red2); }
+
+  @media (max-width: 600px) {
+    .plans-grid { grid-template-columns: 1fr; }
+    .plan.featured { margin: 0; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div style="padding-top: 64px;">
+  <div class="pricing-hero">
+    <div class="section-label">Transparent Pricing</div>
+    <h1>Choose Your Plan</h1>
+    <p>Instant activation · Unlimited daily tests · Full infrastructure access</p>
+  </div>
+
+  <div class="plans">
+    <div class="plans-grid">
+
+      <!-- LITE -->
+      <div class="plan">
+        <div class="plan-tier">Lite — Entry</div>
+        <div class="plan-price">$15<span></span></div>
+        <div class="plan-period">/ 3 days access</div>
+        <hr class="plan-divider">
+        <ul class="plan-features">
+          <li><span class="chk">✓</span> 1 Concurrent Test</li>
+          <li><span class="chk">✓</span> 120s Max Duration</li>
+          <li><span class="chk">✓</span> Unlimited Daily Tests</li>
+          <li class="off"><span class="no">—</span> API Access</li>
+        </ul>
+        <div class="plan-specs">
+          <div class="spec"><div class="sv">40G</div><div class="sk">Bandwidth</div></div>
+          <div class="spec"><div class="sv">350K</div><div class="sk">RPS</div></div>
+        </div>
+        <a href="/register" class="plan-btn">Activate Plan</a>
+      </div>
+
+      <!-- PRO (featured) -->
+      <div class="plan featured">
+        <div class="plan-badge">Most Popular</div>
+        <div class="plan-tier">Pro — Standard</div>
+        <div class="plan-price">$49<span></span></div>
+        <div class="plan-period">/ 30 days access</div>
+        <hr class="plan-divider">
+        <ul class="plan-features">
+          <li><span class="chk">✓</span> 5 Concurrent Tests</li>
+          <li><span class="chk">✓</span> 1800s Max Duration</li>
+          <li><span class="chk">✓</span> Unlimited Daily Tests</li>
+          <li><span class="chk">✓</span> API Access</li>
+        </ul>
+        <div class="plan-specs">
+          <div class="spec"><div class="sv">500G</div><div class="sk">Bandwidth</div></div>
+          <div class="spec"><div class="sv">2M</div><div class="sk">RPS</div></div>
+        </div>
+        <a href="/register" class="plan-btn">Activate Plan</a>
+      </div>
+
+      <!-- ENTERPRISE -->
+      <div class="plan">
+        <div class="plan-tier">Enterprise — Unlimited</div>
+        <div class="plan-price">$199<span></span></div>
+        <div class="plan-period">/ 30 days access</div>
+        <hr class="plan-divider">
+        <ul class="plan-features">
+          <li><span class="chk">✓</span> 20 Concurrent Tests</li>
+          <li><span class="chk">✓</span> Unlimited Duration</li>
+          <li><span class="chk">✓</span> Unlimited Daily Tests</li>
+          <li><span class="chk">✓</span> Full API Access</li>
+        </ul>
+        <div class="plan-specs">
+          <div class="spec"><div class="sv">5.4T</div><div class="sk">Bandwidth</div></div>
+          <div class="spec"><div class="sv">160M</div><div class="sk">RPS</div></div>
+        </div>
+        <a href="/register" class="plan-btn">Activate Plan</a>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
